@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'testing_page.dart'; // Import the Testing Page
 import 'signup_screen.dart'; // Import the Sign-Up Screen
 
 class LoginScreen extends StatelessWidget {
@@ -7,6 +9,7 @@ class LoginScreen extends StatelessWidget {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  // Function to handle user login
   Future<void> _loginUser(BuildContext context) async {
     if (_formKey.currentState!.validate()) {
       try {
@@ -19,8 +22,11 @@ class LoginScreen extends StatelessWidget {
         // Login successful
         print('User logged in: ${userCredential.user!.email}');
 
-        // Navigate to the home screen (replace with your home screen)
-        // Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => HomeScreen()));
+        // Navigate to the Testing Page
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => TestingPage()),
+        );
       } on FirebaseAuthException catch (e) {
         // Handle login errors
         String errorMessage = 'Login failed. Please try again.';
@@ -38,6 +44,77 @@ class LoginScreen extends StatelessWidget {
         // Handle other errors
         print('Error: $e');
       }
+    }
+  }
+
+  // Function to handle Google Sign-In
+  Future<void> _signInWithGoogle(BuildContext context) async {
+    try {
+      // Trigger the Google Sign-In flow
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+
+      if (googleUser == null) {
+        // User canceled the sign-in process
+        return;
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the credential
+      final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+
+      // Successfully signed in
+      print('Google login successful: ${userCredential.user!.email}');
+
+      // Navigate to the Testing Page
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => TestingPage()),
+      );
+    } catch (e) {
+      print('Error during Google login: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Google login failed. Please try again.')),
+      );
+    }
+  }
+
+  // Function to handle forgot password
+  Future<void> _resetPassword(BuildContext context) async {
+    final email = _emailController.text.trim();
+
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Please enter your email address')),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Password reset email sent to $email')),
+      );
+    } on FirebaseAuthException catch (e) {
+      String errorMessage = 'Failed to send password reset email.';
+      if (e.code == 'user-not-found') {
+        errorMessage = 'No user found with this email address.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    } catch (e) {
+      print('Error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('An error occurred. Please try again.')),
+      );
     }
   }
 
@@ -115,9 +192,7 @@ class LoginScreen extends StatelessWidget {
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton(
-                    onPressed: () {
-                      // Navigate to forgot password screen
-                    },
+                    onPressed: () => _resetPassword(context),
                     child: Text(
                       'Forgot Password?',
                       style: TextStyle(color: Colors.blue),
@@ -153,24 +228,9 @@ class LoginScreen extends StatelessWidget {
                 SizedBox(
                   width: double.infinity,
                   child: OutlinedButton.icon(
-                    onPressed: () {
-                      // Handle Google login
-                    },
+                    onPressed: () => _signInWithGoogle(context),
                     icon: Image.asset('assets/images/google_logo.png', width: 24),
                     label: Text('Continue with Google'),
-                  ),
-                ),
-                SizedBox(height: 10),
-
-                // Continue with Facebook Button
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      // Handle Facebook login
-                    },
-                    icon: Image.asset('assets/images/facebook_logo.png', width: 24),
-                    label: Text('Continue with Facebook'),
                   ),
                 ),
                 SizedBox(height: 20),
@@ -182,23 +242,10 @@ class LoginScreen extends StatelessWidget {
                     Text("Don't have an account?"),
                     TextButton(
                       onPressed: () {
-                        // Navigate to the Sign-Up Screen with animation
+                        // Navigate to the Sign-Up Screen
                         Navigator.push(
                           context,
-                          PageRouteBuilder(
-                            pageBuilder: (context, animation, secondaryAnimation) => SignUpScreen(),
-                            transitionsBuilder: (context, animation, secondaryAnimation, child) {
-                              const begin = Offset(1.0, 0.0); // Slide from right
-                              const end = Offset.zero;
-                              const curve = Curves.easeInOut;
-                              var tween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
-                              var offsetAnimation = animation.drive(tween);
-                              return SlideTransition(
-                                position: offsetAnimation,
-                                child: child,
-                              );
-                            },
-                          ),
+                          MaterialPageRoute(builder: (context) => SignUpScreen()),
                         );
                       },
                       child: Text(
