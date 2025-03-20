@@ -1,13 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'testing_page.dart'; // Import the Testing Page
+import 'package:cloud_firestore/cloud_firestore.dart'; // For Firestore
+import 'package:shared_preferences/shared_preferences.dart'; // For SharedPreferences
+import 'main_screen.dart'; // Import the MainScreen
 import 'signup_screen.dart'; // Import the Sign-Up Screen
+import 'profile_personalization_screen.dart'; // Import the Profile Personalization Screen
 
 class LoginScreen extends StatelessWidget {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  // Function to check if the user has completed profile personalization (Firestore)
+  Future<bool> hasUserCompletedProfileFirestore(String uid) async {
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      return userDoc.data()!['hasCompletedProfile'] ?? false;
+    }
+    return false; // Assume profile is not completed if the document doesn't exist
+  }
+
+  // Function to check if the user has completed profile personalization (SharedPreferences)
+  Future<bool> hasUserCompletedProfileSharedPreferences(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('$uid-hasCompletedProfile') ?? false;
+  }
 
   // Function to handle user login
   Future<void> _loginUser(BuildContext context) async {
@@ -19,14 +37,27 @@ class LoginScreen extends StatelessWidget {
           password: _passwordController.text.trim(),
         );
 
-        // Login successful
-        print('User logged in: ${userCredential.user!.email}');
+        // Get the user's UID
+        final uid = userCredential.user!.uid;
 
-        // Navigate to the Testing Page
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => TestingPage()),
-        );
+        // Check if the user has completed profile personalization
+        final hasCompletedProfile = await hasUserCompletedProfileFirestore(uid); // Use Firestore
+        // final hasCompletedProfile = await hasUserCompletedProfileSharedPreferences(uid); // Use SharedPreferences
+
+        // Navigate based on profile completion status
+        if (hasCompletedProfile) {
+          // Navigate to the MainScreen
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => MainScreen()),
+          );
+        } else {
+          // Navigate to the Profile Personalization Screen
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => ProfilePersonalizationScreen(uid: uid)),
+          );
+        }
       } on FirebaseAuthException catch (e) {
         // Handle login errors
         String errorMessage = 'Login failed. Please try again.';
@@ -43,6 +74,9 @@ class LoginScreen extends StatelessWidget {
       } catch (e) {
         // Handle other errors
         print('Error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('An unexpected error occurred. Please try again.')),
+        );
       }
     }
   }
@@ -70,14 +104,27 @@ class LoginScreen extends StatelessWidget {
       // Sign in to Firebase with the credential
       final UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
 
-      // Successfully signed in
-      print('Google login successful: ${userCredential.user!.email}');
+      // Get the user's UID
+      final uid = userCredential.user!.uid;
 
-      // Navigate to the Testing Page
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => TestingPage()),
-      );
+      // Check if the user has completed profile personalization
+      final hasCompletedProfile = await hasUserCompletedProfileFirestore(uid); // Use Firestore
+      // final hasCompletedProfile = await hasUserCompletedProfileSharedPreferences(uid); // Use SharedPreferences
+
+      // Navigate based on profile completion status
+      if (hasCompletedProfile) {
+        // Navigate to the MainScreen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => MainScreen()),
+        );
+      } else {
+        // Navigate to the Profile Personalization Screen
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => ProfilePersonalizationScreen(uid: uid)),
+        );
+      }
     } catch (e) {
       print('Error during Google login: $e');
       ScaffoldMessenger.of(context).showSnackBar(
