@@ -1,54 +1,94 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'PendingRequestsScreen.dart';
+import 'ProfileHistoryScreen.dart';
+import 'statistics_screen.dart';
+import 'ManagePlatformsScreen.dart';
 
+class AdminDashboard extends StatefulWidget {
+  const AdminDashboard({Key? key}) : super(key: key);
 
-class AdminDashboard extends StatelessWidget {
+  @override
+  _AdminDashboardState createState() => _AdminDashboardState();
+}
+
+class _AdminDashboardState extends State<AdminDashboard> {
+  int _selectedIndex = 0;
+
+  // List of screens to switch between
+  final List<Widget> _screens = [
+    const PendingRequestsScreen(),
+    const ProfileHistoryScreen(),
+    const StatisticsScreen(),
+    const ManagePlatformsScreen(),
+  ];
+
+  void _onItemTapped(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Admin Dashboard'),
+        title: const Text('Admin Dashboard'),
         actions: [
           IconButton(
-            icon: Icon(Icons.settings),
+            icon: const Icon(Icons.settings),
             onPressed: () {
               // Navigate to admin settings
             },
           ),
         ],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('users').snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) {
-            return Center(child: CircularProgressIndicator());
-          }
-
-          final users = snapshot.data!.docs;
-          return ListView.builder(
-            itemCount: users.length,
-            itemBuilder: (context, index) {
-              final user = users[index];
-              return ListTile(
-                title: Text(user['email']),
-                subtitle: Text('Role: ${user['role']}'),
-                trailing: IconButton(
-                  icon: Icon(Icons.edit),
-                  onPressed: () {
-                    // Edit user role
-                  },
-                ),
-              );
-            },
-          );
+      drawer: NavigationDrawer(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            _selectedIndex = index;
+          });
         },
+        children: [
+          const DrawerHeader(
+            decoration: BoxDecoration(
+              color: Colors.blue,
+            ),
+            child: Text(
+              'Admin Menu',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 24,
+              ),
+            ),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.pending),
+            label: const Text('Pending Requests'),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.history),
+            label: const Text('Profile History'),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.bar_chart),
+            label: const Text('Statistics'),
+          ),
+          NavigationDrawerDestination(
+            icon: const Icon(Icons.settings_applications),
+            label: const Text('Manage Platforms'),
+          ),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        child: Icon(Icons.add),
+      body: _screens[_selectedIndex],
+      floatingActionButton: _selectedIndex == 0
+          ? FloatingActionButton(
+        child: const Icon(Icons.add),
         onPressed: () {
           // Add new user
         },
-      ),
+      )
+          : null, // Only show FAB on Pending Requests screen
     );
   }
 }

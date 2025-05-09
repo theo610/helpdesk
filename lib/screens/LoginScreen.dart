@@ -5,49 +5,75 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'role_based_main_screen.dart';
 import 'signup_screen.dart';
 import 'profile_personalization_screen.dart';
+import 'waiting_for_approval_screen.dart';
 
 class LoginScreen extends StatelessWidget {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  Future<Map<String, dynamic>> _getUserData(String uid) async {
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(uid)
-        .get();
-    return {
-      'hasCompletedProfile': userDoc.data()?['hasCompletedProfile'] ?? false,
-      'role': userDoc.data()?['role'] ?? 'employee',
-    };
+  Future<Map<String, dynamic>> _getUserData(String uid, BuildContext context) async {
+    try {
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .get();
+
+      if (!userDoc.exists) {
+        return {
+          'hasCompletedProfile': false,
+          'isApproved': false,
+        };
+      }
+
+      return {
+        'hasCompletedProfile': userDoc.data()?['hasCompletedProfile'] ?? false,
+        'isApproved': userDoc.data()?['isApproved'] ?? false,
+        'role': userDoc.data()?['role'] ?? 'employee', // Fallback role for navigation
+      };
+    } catch (e) {
+      print('Error fetching user data: $e');
+      _showErrorSnackbar(context, 'Error fetching user data: $e');
+      return {
+        'hasCompletedProfile': false,
+        'isApproved': false,
+      };
+    }
   }
 
   void _navigateBasedOnUserStatus(BuildContext context, String uid) async {
-    try {
-      final userData = await _getUserData(uid);
-      final hasCompletedProfile = userData['hasCompletedProfile'];
-      final role = userData['role'];
+    final userData = await _getUserData(uid, context);
+    final hasCompletedProfile = userData['hasCompletedProfile'];
+    final isApproved = userData['isApproved'];
+    final role = userData['role'] ?? 'employee';
 
-      if (!hasCompletedProfile) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfilePersonalizationScreen(
-              uid: uid,
-              isAdmin: role == 'admin',
-            ),
+    if (!hasCompletedProfile) {
+      // If the user hasn't completed their profile, send them to the personalization screen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ProfilePersonalizationScreen(
+            uid: uid,
+            isAdmin: role == 'admin',
           ),
-        );
-      } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => RoleBasedMainScreen(initialRole: role),
-          ),
-        );
-      }
-    } catch (e) {
-      _showErrorSnackbar(context, 'Error navigating: $e');
+        ),
+      );
+    } else if (!isApproved) {
+      // If the profile is not approved, send them to the waiting screen
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WaitingForApprovalScreen(),
+        ),
+      );
+    } else {
+      // If the profile is approved, send them to the dashboard
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RoleBasedMainScreen(initialRole: role),
+        ),
+      );
     }
   }
 
@@ -94,16 +120,6 @@ class LoginScreen extends StatelessWidget {
 
       final userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
       final uid = userCredential.user!.uid;
-
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
-      if (!userDoc.exists) {
-        await FirebaseFirestore.instance.collection('users').doc(uid).set({
-          'email': googleUser.email,
-          'hasCompletedProfile': false,
-          'role': 'employee',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-      }
 
       _navigateBasedOnUserStatus(context, uid);
     } catch (e) {

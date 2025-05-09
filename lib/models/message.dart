@@ -20,15 +20,20 @@ class Message {
   });
 
   factory Message.fromMap(Map<String, dynamic> map) {
-    return Message(
-      id: map['id'],
-      conversationId: map['conversationId'],
-      senderId: map['senderId'],
-      content: map['content'],
-      sentAt: (map['sentAt'] as Timestamp).toDate(),
-      isRead: map['isRead'] ?? false,
-      participants: List<String>.from(map['participants']),
-    );
+    try {
+      return Message(
+        id: map['id'] as String,
+        conversationId: map['conversationId'] as String,
+        senderId: map['senderId'] as String,
+        content: map['content'] as String,
+        sentAt: (map['sentAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+        isRead: map['isRead'] as bool? ?? false,
+        participants: List<String>.from(map['participants'] ?? []),
+      );
+    } catch (e) {
+      print('Error parsing Message: $e');
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toMap() {

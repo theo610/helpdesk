@@ -11,7 +11,8 @@
         <!-- Add Firebase metadata for Phone Authentication -->
         <meta-data
             android:name="com.google.firebase.auth.package"
-            android:value="com.example.version_1" /> <!-- Replace with your app's package name -->
+            android:value="com.example.version_1"
+            />
 
         <activity
             android:name=".MainActivity"

@@ -1,46 +1,80 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:uuid/uuid.dart';
 import '../models/conversation.dart';
 import '../models/message.dart';
 
 class ChatRepository {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
+  final Uuid _uuid = Uuid();
 
-  // Create or get existing conversation between users
-  Future<Conversation> getOrCreateConversation(String userId1, String userId2) async {
+  Future<Conversation> getOrCreateConversation({
+    required String userId1,
+    required String userId2,
+  }) async {
     final participants = [userId1, userId2]..sort();
+    String conversationId;
 
     try {
-      final query = await _firestore
+      // Check if a conversation already exists between these users
+      final existingConversations = await _firestore
           .collection('conversations')
-          .where('participants', isEqualTo: participants)
-          .limit(1)
+          .where('participants', arrayContains: userId1)
           .get();
 
-      if (query.docs.isNotEmpty) {
+      QueryDocumentSnapshot<Map<String, dynamic>>? directConversation;
+      for (var doc in existingConversations.docs) {
+        if ((doc['participants'] as List).contains(userId2)) {
+          directConversation = doc;
+          break;
+        }
+      }
+
+      if (directConversation != null) {
+        conversationId = directConversation.id;
+        print('Found existing conversation: $conversationId');
         return Conversation.fromMap({
-          'id': query.docs.first.id,
-          ...query.docs.first.data(),
+          'id': directConversation.id,
+          ...directConversation.data(),
         });
       }
 
-      final docRef = await _firestore.collection('conversations').add({
-        'participants': participants,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      // Generate a unique ID for the conversation
+      final uniqueId = _uuid.v4().substring(0, 8);
+      conversationId = '${participants.join('_')}_$uniqueId';
+      print('Attempting to create conversation: $conversationId, participants: $participants');
 
-      return Conversation(
-        id: docRef.id,
-        participants: participants,
-        createdAt: DateTime.now(),
-      );
+      final conversationRef = _firestore.collection('conversations').doc(conversationId);
+      final snapshot = await conversationRef.get();
+
+      if (!snapshot.exists) {
+        print('Conversation does not exist, creating new conversation...');
+        await conversationRef.set({
+          'participants': participants,
+          'createdAt': FieldValue.serverTimestamp(),
+          'lastMessage': null,
+          'lastMessageTime': null,
+          'lastMessageSenderId': null,
+          'unreadCounts': {
+            userId1: 0,
+            userId2: 0,
+          },
+        });
+      }
+
+      final doc = await conversationRef.get();
+      print('Conversation retrieved/created successfully: $conversationId');
+      return Conversation.fromMap({
+        'id': doc.id,
+        ...doc.data()!,
+      });
     } catch (e) {
+      print('Error in getOrCreateConversation: $e');
       throw Exception('Failed to get/create conversation: $e');
     }
   }
 
-  // Send a message
   Future<void> sendMessage({
     required String conversationId,
     required String senderId,
@@ -50,8 +84,11 @@ class ChatRepository {
     try {
       final batch = _firestore.batch();
 
-      // Add the message
-      final messageRef = _firestore.collection('messages').doc();
+      final messageRef = _firestore
+          .collection('conversations')
+          .doc(conversationId)
+          .collection('messages')
+          .doc();
       batch.set(messageRef, {
         'id': messageRef.id,
         'conversationId': conversationId,
@@ -62,13 +99,20 @@ class ChatRepository {
         'participants': participants,
       });
 
-      // Update conversation last message
       final conversationRef = _firestore.collection('conversations').doc(conversationId);
-      batch.update(conversationRef, {
+      final updates = {
         'lastMessage': content,
         'lastMessageTime': FieldValue.serverTimestamp(),
         'lastMessageSenderId': senderId,
-      });
+      };
+      for (final userId in participants) {
+        if (userId != senderId) {
+          updates['unreadCounts.$userId'] = FieldValue.increment(1);
+        } else {
+          updates['unreadCounts.$userId'] = 0;
+        }
+      }
+      batch.update(conversationRef, updates);
 
       await batch.commit();
     } catch (e) {
@@ -76,11 +120,11 @@ class ChatRepository {
     }
   }
 
-  // Stream of messages for a conversation
   Stream<List<Message>> getMessagesStream(String conversationId) {
     return _firestore
+        .collection('conversations')
+        .doc(conversationId)
         .collection('messages')
-        .where('conversationId', isEqualTo: conversationId)
         .orderBy('sentAt', descending: false)
         .snapshots()
         .map((snapshot) => snapshot.docs
@@ -88,7 +132,6 @@ class ChatRepository {
         .toList());
   }
 
-  // Stream of user conversations
   Stream<List<Conversation>> getUserConversations(String userId) {
     return _firestore
         .collection('conversations')
@@ -96,33 +139,53 @@ class ChatRepository {
         .orderBy('lastMessageTime', descending: true)
         .snapshots()
         .map((snapshot) => snapshot.docs
-        .map((doc) => Conversation.fromMap({'id': doc.id, ...doc.data()}))
+        .map((doc) => Conversation.fromMap({
+      'id': doc.id,
+      ...doc.data(),
+    }))
         .toList());
   }
 
-  // Mark messages as read
   Future<void> markMessagesAsRead(String conversationId, String userId) async {
     try {
+      final batch = _firestore.batch();
+
       final query = await _firestore
+          .collection('conversations')
+          .doc(conversationId)
           .collection('messages')
-          .where('conversationId', isEqualTo: conversationId)
           .where('senderId', isNotEqualTo: userId)
           .where('isRead', isEqualTo: false)
           .get();
-
-      final batch = _firestore.batch();
       for (final doc in query.docs) {
         batch.update(doc.reference, {'isRead': true});
       }
+
+      final conversationRef = _firestore.collection('conversations').doc(conversationId);
+      batch.update(conversationRef, {
+        'unreadCounts.$userId': 0,
+      });
+
       await batch.commit();
     } catch (e) {
       throw Exception('Failed to mark messages as read: $e');
     }
   }
 
-  // Get user data
   Future<Map<String, dynamic>> getUserData(String userId) async {
     final doc = await _firestore.collection('users').doc(userId).get();
     return doc.data() ?? {};
+  }
+
+  Future<Map<String, dynamic>> getTicketDetails(String ticketId) async {
+    try {
+      final ticketDoc = await _firestore.collection('tickets').doc(ticketId).get();
+      if (!ticketDoc.exists) {
+        throw Exception('Ticket not found');
+      }
+      return ticketDoc.data() ?? {};
+    } catch (e) {
+      throw Exception('Failed to fetch ticket details: $e');
+    }
   }
 }
