@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import '../models/ticket_model.dart';
 import '../repositories/chat_repository.dart';
 import 'chat_screen.dart';
@@ -8,14 +10,14 @@ import 'chat_screen.dart';
 class TicketDetailsScreen extends StatefulWidget {
   final String ticketId;
   final bool isAgent;
-  final bool isEmployee; // Add flag to indicate if the user is an employee
+  final bool isEmployee;
   final bool initialFocusResponse;
 
   const TicketDetailsScreen({
     Key? key,
     required this.ticketId,
     this.isAgent = false,
-    this.isEmployee = false, // Default to false
+    this.isEmployee = false,
     this.initialFocusResponse = false,
   }) : super(key: key);
 
@@ -23,7 +25,7 @@ class TicketDetailsScreen extends StatefulWidget {
   _TicketDetailsScreenState createState() => _TicketDetailsScreenState();
 }
 
-class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
+class _TicketDetailsScreenState extends State<TicketDetailsScreen> with SingleTickerProviderStateMixin {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final ChatRepository _chatRepository = ChatRepository();
@@ -32,19 +34,42 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   bool _isUpdating = false;
   String? _userRole;
 
+  late AnimationController _animationController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
+
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
+    );
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 0.1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _animationController, curve: Curves.easeInOut));
     _checkAuthenticationAndLoadData();
+    _animationController.forward();
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkAuthenticationAndLoadData() async {
     if (_auth.currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please sign in to view ticket details')),
+        SnackBar(
+          content: Text('Please sign in to view ticket details', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
-      // Replace with your navigation logic to the login screen
-      // For example: Navigator.pushReplacementNamed(context, '/login');
       return;
     }
     await _loadUserRole();
@@ -67,17 +92,9 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   Future<void> _loadTicketData() async {
     setState(() => _isLoading = true);
     try {
-      // Log the current user for debugging
-      print('Current user UID: ${_auth.currentUser?.uid}');
-      final userDoc = await _firestore.collection('users').doc(_auth.currentUser?.uid).get();
-      print('User data: ${userDoc.data()}');
-
-      // Load the ticket document
       final ticketDoc = await _firestore.collection('tickets').doc(widget.ticketId).get();
-      print('Ticket data: ${ticketDoc.data()}');
       if (ticketDoc.exists) {
         final ticket = Ticket.fromFirestore(ticketDoc);
-        // Validate required fields
         if (ticket.title.isEmpty || ticket.description.isEmpty) {
           throw Exception('Ticket data is incomplete');
         }
@@ -90,7 +107,10 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
           _isLoading = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ticket not found')),
+          SnackBar(
+            content: Text('Ticket not found', style: GoogleFonts.poppins()),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     } catch (e) {
@@ -98,32 +118,42 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
       print('Error loading ticket: $e');
       if (e.toString().contains('permission-denied')) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You do not have permission to view this ticket')),
+          SnackBar(
+            content: Text('You do not have permission to view this ticket', style: GoogleFonts.poppins()),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading ticket: $e')),
+          SnackBar(
+            content: Text('Error loading ticket: $e', style: GoogleFonts.poppins()),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     }
   }
 
   Future<void> _startConversationWithCreator() async {
-    if (_ticket == null) return;
-
-    final currentUserId = _auth.currentUser?.uid;
-    if (currentUserId == null) {
+    if (_ticket == null || _auth.currentUser == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('User not signed in')),
+        SnackBar(
+          content: Text('Unable to start conversation', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
       return;
     }
 
+    final currentUserId = _auth.currentUser!.uid;
     final ticketCreatorId = _ticket!.createdBy;
 
     if (currentUserId == ticketCreatorId) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You cannot chat with yourself')),
+        SnackBar(
+          content: Text('You cannot chat with yourself', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
       return;
     }
@@ -133,24 +163,23 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
         userId1: currentUserId,
         userId2: ticketCreatorId,
       );
-
-      // Use the name stored in the ticket
-      final creatorName = _ticket!.createdByName;
-
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ChatScreen(
             conversationId: conversation.id,
             otherUserId: ticketCreatorId,
-            otherUserName: creatorName,
+            otherUserName: _ticket!.createdByName ?? 'Unknown',
           ),
         ),
       );
     } catch (e) {
       print('Error starting conversation: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error starting conversation: $e')),
+        SnackBar(
+          content: Text('Error starting conversation: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     }
   }
@@ -158,14 +187,34 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   void _showAgentOptions(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       builder: (context) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant.withOpacity(0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
               ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Change Status'),
+                leading: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
+                title: Text(
+                  'Change Status',
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _showStatusChangeDialog(context);
@@ -173,8 +222,15 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
               ),
               if (_userRole == 'agent')
                 ListTile(
-                  leading: const Icon(Icons.swap_horiz),
-                  title: const Text('Send to Moderator'),
+                  leading: Icon(Icons.swap_horiz, color: Theme.of(context).colorScheme.primary),
+                  title: Text(
+                    'Send to Moderator',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _showReassignDialog(context);
@@ -182,8 +238,15 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
                 ),
               if (_userRole == 'moderator')
                 ListTile(
-                  leading: const Icon(Icons.person_add),
-                  title: const Text('Assign to Agent'),
+                  leading: Icon(Icons.person_add, color: Theme.of(context).colorScheme.primary),
+                  title: Text(
+                    'Assign to Agent',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
                   onTap: () {
                     Navigator.pop(context);
                     _showAssignDialog(context);
@@ -200,36 +263,85 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Change Ticket Status'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: const Text('Open'),
-                leading: const Icon(Icons.circle, color: Colors.orange),
-                onTap: () {
-                  Navigator.pop(context);
-                  _updateTicketStatus('open');
-                },
+        return AnimatedScale(
+          scale: 1.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+          child: AlertDialog(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary,
+                    Theme.of(context).colorScheme.secondary,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
               ),
-              ListTile(
-                title: const Text('In Progress'),
-                leading: const Icon(Icons.circle, color: Colors.blue),
-                onTap: () {
-                  Navigator.pop(context);
-                  _updateTicketStatus('in_progress');
-                },
+              child: Text(
+                'Change Ticket Status',
+                style: GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
               ),
-              ListTile(
-                title: const Text('Resolved'),
-                leading: const Icon(Icons.circle, color: Colors.green),
-                onTap: () {
-                  Navigator.pop(context);
-                  _updateTicketStatus('resolved');
-                },
-              ),
-            ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  title: Text(
+                    'Open',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  leading: Icon(Icons.circle, color: Colors.orange, size: 20),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _updateTicketStatus('open');
+                  },
+                ),
+                ListTile(
+                  title: Text(
+                    'In Progress',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  leading: Icon(Icons.circle, color: Colors.blue, size: 20),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _updateTicketStatus('in_progress');
+                  },
+                ),
+                ListTile(
+                  title: Text(
+                    'Closed',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w500,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  ),
+                  leading: Icon(Icons.circle, color: Colors.green, size: 20),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _updateTicketStatus('closed');
+                  },
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -239,18 +351,68 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   Future<void> _updateTicketStatus(String newStatus) async {
     setState(() => _isUpdating = true);
     try {
-      await _firestore.collection('tickets').doc(widget.ticketId).update({
+      final ticketRef = _firestore.collection('tickets').doc(widget.ticketId);
+      final currentTicketDoc = await ticketRef.get();
+      if (!currentTicketDoc.exists) {
+        throw Exception('Ticket not found');
+      }
+      final currentTicket = Ticket.fromFirestore(currentTicketDoc);
+
+      final currentUserId = _auth.currentUser?.uid;
+      if (currentUserId == null) {
+        throw Exception('User not signed in');
+      }
+
+      final ticketData = <String, dynamic>{
         'status': newStatus,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+
+      // If the status is changing from 'open' to 'in_progress' and the user is an agent,
+      // assign the ticket to the current user
+      if (currentTicket.status == 'open' &&
+          newStatus == 'in_progress' &&
+          _userRole == 'agent') {
+        ticketData['assignedTo'] = currentUserId;
+        ticketData['reassigned'] = false;
+
+        // Update any open reassignment records
+        final reassignedDocs = await _firestore
+            .collection('reassigned_tickets')
+            .where('ticketId', isEqualTo: widget.ticketId)
+            .where('newAgentId', isNull: true)
+            .get();
+        for (var doc in reassignedDocs.docs) {
+          await doc.reference.update({
+            'newAgentId': currentUserId,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
+      }
+
+      if (newStatus == 'in_progress' && currentTicket.firstResponseAt == null) {
+        ticketData['firstResponseAt'] = FieldValue.serverTimestamp();
+      }
+
+      if (newStatus == 'closed' && currentTicket.resolvedAt == null) {
+        ticketData['resolvedAt'] = FieldValue.serverTimestamp();
+      }
+
+      await ticketRef.update(ticketData);
       await _loadTicketData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Status updated successfully!')),
+        SnackBar(
+          content: Text('Status updated successfully!', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
       );
     } catch (e) {
       print('Error updating status: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating status: $e')),
+        SnackBar(
+          content: Text('Error updating status: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } finally {
       setState(() => _isUpdating = false);
@@ -260,56 +422,171 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   void _showReassignDialog(BuildContext context) {
     final TextEditingController detailsController = TextEditingController();
     final formKey = GlobalKey<FormState>();
+    bool isFocused = false;
 
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Send to Moderator'),
-          content: Form(
-            key: formKey,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text(
-                    'The ticket will be unassigned and sent to a moderator for reassignment.',
-                    style: TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: detailsController,
-                    decoration: const InputDecoration(
-                      labelText: 'Reason for Reassignment',
-                      border: OutlineInputBorder(),
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AnimatedScale(
+              scale: 1.0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+              child: AlertDialog(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Theme.of(context).colorScheme.primary,
+                        Theme.of(context).colorScheme.secondary,
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
-                    maxLines: 3,
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Please provide a reason for reassignment';
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  ),
+                  child: Text(
+                    'Send to Moderator',
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                    ),
+                  ),
+                ),
+                content: SingleChildScrollView(
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'The ticket will be unassigned and sent to a moderator for reassignment.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w400,
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Semantics(
+                          label: 'Reassignment reason input, required',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Reason for Reassignment *',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              AnimatedScale(
+                                scale: isFocused ? 1.02 : 1.0,
+                                duration: const Duration(milliseconds: 200),
+                                child: Container(
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.surface,
+                                    borderRadius: BorderRadius.circular(12),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.05),
+                                        blurRadius: 4,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ],
+                                  ),
+                                  child: TextField(
+                                    controller: detailsController,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: 'Enter reason',
+                                      hintStyle: GoogleFonts.poppins(
+                                        fontSize: 14,
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                    ),
+                                    maxLines: 3,
+                                    onChanged: (value) {
+                                      setState(() {});
+                                    },
+                                    onTap: () {
+                                      setState(() {
+                                        isFocused = true;
+                                      });
+                                    },
+                                    onEditingComplete: () {
+                                      setState(() {
+                                        isFocused = false;
+                                      });
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                        decorationColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      if (detailsController.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Reason for reassignment is required', style: GoogleFonts.poppins()),
+                            backgroundColor: Theme.of(context).colorScheme.error,
+                          ),
+                        );
+                        return;
                       }
-                      return null;
+                      Navigator.pop(context);
+                      await _sendToModerator(detailsController.text.trim());
                     },
+                    child: Text(
+                      'Send',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                        decoration: TextDecoration.underline,
+                        decorationColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                      ),
+                    ),
                   ),
                 ],
               ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () async {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(context);
-                  await _sendToModerator(detailsController.text.trim());
-                }
-              },
-              child: const Text('Send'),
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -323,15 +600,11 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
         throw Exception('User not signed in');
       }
 
-      // Log the current user's role
       final userDoc = await _firestore.collection('users').doc(currentUserId).get();
       if (!userDoc.exists) {
         throw Exception('User document not found');
       }
-      final userRole = userDoc.data()?['role'] ?? 'unknown';
-      print('Current user role: $userRole');
 
-      // Log the data being written to reassigned_tickets
       final reassignmentData = {
         'ticketId': widget.ticketId,
         'previousAgentId': _ticket?.assignedTo ?? 'Unassigned',
@@ -341,28 +614,30 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
         'sentToModeratorBy': currentUserId,
         'timestamp': FieldValue.serverTimestamp(),
       };
-      print('Writing to reassigned_tickets with data: $reassignmentData');
 
-      // Step 1: Record the reassignment in the reassigned_tickets collection
       await _firestore.collection('reassigned_tickets').add(reassignmentData);
 
-      // Step 2: Update the ticket's assignedTo field to null and mark as reassigned
       await _firestore.collection('tickets').doc(widget.ticketId).update({
         'assignedTo': null,
         'reassigned': true,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Step 3: Reload the ticket data to reflect the changes
       await _loadTicketData();
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket sent to moderator successfully!')),
+        SnackBar(
+          content: Text('Ticket sent to moderator successfully!', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
       );
     } catch (e) {
       print('Error sending ticket to moderator: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error sending ticket to moderator: $e')),
+        SnackBar(
+          content: Text('Error sending ticket to moderator: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } finally {
       setState(() => _isUpdating = false);
@@ -373,54 +648,108 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: const Text('Assign to Agent'),
-          content: FutureBuilder<QuerySnapshot>(
-            future: _firestore
-                .collection('users')
-                .where('role', isEqualTo: 'agent')
-                .where('platform', isEqualTo: _ticket?.platform)
-                .get(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              final agents = snapshot.data!.docs;
-              if (agents.isEmpty) {
-                return const Text('No agents found for this platform.');
-              }
-
-              return SizedBox(
-                width: double.maxFinite,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: agents.length,
-                  itemBuilder: (context, index) {
-                    final agent = agents[index];
-                    // Cast data() to Map<String, dynamic> to use containsKey
-                    final agentData = agent.data() as Map<String, dynamic>;
-                    final agentName = agentData.containsKey('fullName') && agentData['fullName'] != null
-                        ? agentData['fullName']
-                        : 'Agent ${agent.id}';
-                    return ListTile(
-                      title: Text(agentName),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _assignToAgent(agent.id);
-                      },
-                    );
-                  },
+        return AnimatedScale(
+          scale: 1.0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+          child: AlertDialog(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Theme.of(context).colorScheme.primary,
+                    Theme.of(context).colorScheme.secondary,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                 ),
-              );
-            },
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Text(
+                'Assign to Agent',
+                style: GoogleFonts.poppins(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
             ),
-          ],
+            content: FutureBuilder<QuerySnapshot>(
+              future: _firestore
+                  .collection('users')
+                  .where('role', isEqualTo: 'agent')
+                  .where('platform', isEqualTo: _ticket?.platform)
+                  .get(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Theme.of(context).colorScheme.primary),
+                    ),
+                  );
+                }
+
+                final agents = snapshot.data!.docs;
+                if (agents.isEmpty) {
+                  return Text(
+                    'No agents found for this platform.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                      color: Theme.of(context).colorScheme.onSurface,
+                    ),
+                  );
+                }
+
+                return SizedBox(
+                  width: double.maxFinite,
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: agents.length,
+                    itemBuilder: (context, index) {
+                      final agent = agents[index];
+                      final agentData = agent.data() as Map<String, dynamic>;
+                      final agentName = agentData.containsKey('fullName') && agentData['fullName'] != null
+                          ? agentData['fullName']
+                          : 'Agent ${agent.id}';
+                      return ListTile(
+                        leading: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
+                        title: Text(
+                          agentName,
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _assignToAgent(agent.id);
+                        },
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  'Cancel',
+                  style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    color: Theme.of(context).colorScheme.primary,
+                    decoration: TextDecoration.underline,
+                    decorationColor: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                  ),
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -429,7 +758,6 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   Future<void> _assignToAgent(String agentId) async {
     setState(() => _isUpdating = true);
     try {
-      // Fetch the current ticket data to get priority and status
       final ticketDoc = await _firestore.collection('tickets').doc(widget.ticketId).get();
       if (!ticketDoc.exists) {
         throw Exception('Ticket not found');
@@ -438,16 +766,14 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
       final currentPriority = ticketData['priority'] as String;
       final currentStatus = ticketData['status'] as String;
 
-      // Update the ticket with all required fields
       await _firestore.collection('tickets').doc(widget.ticketId).update({
         'assignedTo': agentId,
-        'priority': currentPriority, // Include current priority
-        'status': currentStatus, // Include current status
-        'reassigned': false, // Reset reassigned status
+        'priority': currentPriority,
+        'status': currentStatus,
+        'reassigned': false,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Update the reassigned_tickets entry
       final reassignedDocs = await _firestore
           .collection('reassigned_tickets')
           .where('ticketId', isEqualTo: widget.ticketId)
@@ -462,15 +788,20 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
 
       await _loadTicketData();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket assigned successfully!')),
+        SnackBar(
+          content: Text('Ticket assigned successfully!', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
       );
 
-      // Notify the parent to refresh the dashboard
       Navigator.pop(context, true);
     } catch (e) {
       print('Error assigning ticket: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error assigning ticket: $e')),
+        SnackBar(
+          content: Text('Error assigning ticket: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } finally {
       setState(() => _isUpdating = false);
@@ -480,224 +811,523 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ticket Details'),
-        actions: widget.isAgent
-            ? [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: _isUpdating ? null : () => _showAgentOptions(context),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.background,
+              Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.8),
+            ],
           ),
-        ]
-            : null,
-      ),
-      body: RefreshIndicator(
-        onRefresh: _loadTicketData,
-        child: Stack(
-          children: [
-            _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _ticket == null
-                ? const Center(child: Text('Ticket not found'))
-                : _buildTicketDetails(),
-            if (_isUpdating) const Center(child: CircularProgressIndicator()),
-          ],
+        ),
+        child: SafeArea(
+          child: RefreshIndicator(
+            onRefresh: _loadTicketData,
+            color: Theme.of(context).colorScheme.primary,
+            child: Stack(
+              children: [
+                _buildContent(),
+                if (_isLoading || _isUpdating)
+                  Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTicketDetails() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                _ticket!.title,
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(width: 8),
-              // Only show "Reassigned" chip if the user is not an employee
-              if (_ticket!.reassigned && !widget.isEmployee)
-                const Chip(
-                  label: Text(
-                    'Reassigned',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  backgroundColor: Colors.redAccent,
-                  padding: EdgeInsets.symmetric(horizontal: 8),
-                ),
-            ],
+  Widget _buildContent() {
+    if (_isLoading) {
+      return const SizedBox();
+    }
+    if (_ticket == null) {
+      return Center(
+        child: Text(
+          'Ticket not found',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w400,
+            color: Theme.of(context).colorScheme.onSurface,
           ),
-          const SizedBox(height: 8),
-          Text(
-            _ticket!.description,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          // Display platform and equipment
-          if (_ticket!.platform != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Platform: ${_ticket!.platform}',
-                style: const TextStyle(fontSize: 16),
-              ),
-            ),
-          if (_ticket!.equipment != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Equipment: ${_ticket!.equipment}',
-                style: const TextStyle(fontSize: 16),
-                overflow: TextOverflow.ellipsis,
-                maxLines: 1,
-              ),
-            ),
-          // Display assigned agent if assignedTo exists and user is not an employee
-          if (_ticket!.assignedTo != null && !widget.isEmployee)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: FutureBuilder<DocumentSnapshot>(
-                future: _firestore.collection('users').doc(_ticket!.assignedTo).get(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Text(
-                      'Loading agent details...',
-                      style: TextStyle(fontSize: 16),
-                    );
-                  }
-                  if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
-                    return const Text(
-                      'Assigned to: Unknown Agent',
-                      style: TextStyle(fontSize: 16),
-                    );
-                  }
-                  final user = snapshot.data!;
-                  final userData = user.data() as Map<String, dynamic>?;
-                  final agentName = userData != null && userData.containsKey('fullName') && userData['fullName'] != null
-                      ? userData['fullName']
-                      : 'Agent ${user.id}';
-                  return Text(
-                    'Assigned to: $agentName',
-                    style: const TextStyle(fontSize: 16),
-                  );
-                },
-              ),
-            ),
-          // Display reassignment details only if the user is not an employee
-          if (_ticket!.reassigned && !widget.isEmployee) ...[
-            FutureBuilder<QuerySnapshot>(
-              future: _firestore
-                  .collection('reassigned_tickets')
-                  .where('ticketId', isEqualTo: widget.ticketId)
-                  .where('newAgentId', isNull: true) // Show only unassigned reassignments
-                  .orderBy('timestamp', descending: true)
-                  .limit(1)
-                  .get(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: CircularProgressIndicator(),
-                  );
-                }
-                if (snapshot.hasError) {
-                  print('Error fetching reassignment details: ${snapshot.error}');
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Error loading reassignment details',
-                      style: TextStyle(fontSize: 16, color: Colors.red),
-                    ),
-                  );
-                }
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text(
-                      'Reassignment details not found',
-                      style: TextStyle(fontSize: 16),
-                    ),
-                  );
-                }
+        ),
+      );
+    }
 
-                final reassignmentDoc = snapshot.data!.docs.first;
-                final sentToModeratorBy = reassignmentDoc['sentToModeratorBy'] as String?;
-                final reassignmentReason = reassignmentDoc['details'] as String?;
+    final uniqueId = '${_ticket!.id.substring(0, 8)}-${DateFormat('yyMMddHHmm').format(_ticket!.createdAt)}';
 
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (sentToModeratorBy != null)
-                      FutureBuilder<DocumentSnapshot>(
-                        future: _firestore.collection('users').doc(sentToModeratorBy).get(),
-                        builder: (context, userSnapshot) {
-                          if (userSnapshot.connectionState == ConnectionState.waiting) {
-                            return const Padding(
-                              padding: EdgeInsets.only(top: 8),
-                              child: Text(
-                                'Loading agent details...',
-                                style: TextStyle(fontSize: 16),
-                              ),
-                            );
-                          }
-                          if (userSnapshot.hasError || !userSnapshot.hasData || !userSnapshot.data!.exists) {
-                            return const Padding(
-                              padding: EdgeInsets.only(top: 8),
-                              child: Text(
-                                'Sent to Moderator by: Unknown Agent',
-                                style: TextStyle(fontSize: 16),
-                              ),
-                            );
-                          }
-                          final user = userSnapshot.data!;
-                          final userData = user.data() as Map<String, dynamic>?;
-                          final agentName = userData != null && userData.containsKey('fullName') && userData['fullName'] != null
-                              ? userData['fullName']
-                              : 'Agent ${user.id}';
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 8),
-                            child: Text(
-                              'Sent to Moderator by: $agentName',
-                              style: const TextStyle(fontSize: 16),
-                            ),
-                          );
-                        },
-                      ),
-                    if (reassignmentReason != null && reassignmentReason.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildHeader(),
+                const SizedBox(height: 16),
+                SlideTransition(
+                  position: _slideAnimation,
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      color: Theme.of(context).colorScheme.surface,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
-                              'Reason for Reassignment:',
-                              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                            Row(
+                              children: [
+                                Semantics(
+                                  label: 'Ticket status',
+                                  child: Chip(
+                                    label: Text(
+                                      _ticket!.status.replaceAll('_', ' ').toUpperCase(),
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        color: Theme.of(context).colorScheme.onPrimary,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    backgroundColor: _ticket!.status == 'open'
+                                        ? Colors.orange
+                                        : _ticket!.status == 'in_progress'
+                                        ? Colors.blue
+                                        : Colors.green,
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                if (_ticket!.reassigned && !widget.isEmployee)
+                                  Semantics(
+                                    label: 'Reassigned status',
+                                    child: Chip(
+                                      label: Text(
+                                        'Reassigned',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          color: Theme.of(context).colorScheme.onError,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      backgroundColor: Theme.of(context).colorScheme.error,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    ),
+                                  ),
+                              ],
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              reassignmentReason,
-                              style: const TextStyle(fontSize: 16),
+                            const SizedBox(height: 8),
+                            Semantics(
+                              label: 'Ticket title',
+                              child: Text(
+                                _ticket!.title,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Semantics(
+                              label: 'Ticket ID',
+                              child: Chip(
+                                label: Text(
+                                  'ID: $uniqueId',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                                side: BorderSide(
+                                  color: Theme.of(context).colorScheme.outline,
+                                  width: 1,
+                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              ),
                             ),
                           ],
                         ),
                       ),
-                  ],
-                );
-              },
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SlideTransition(
+                  position: _slideAnimation,
+                  child: FadeTransition(
+                    opacity: _fadeAnimation,
+                    child: Card(
+                      elevation: 2,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      color: Theme.of(context).colorScheme.surface,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Details',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Semantics(
+                              label: 'Ticket description',
+                              child: ListTile(
+                                leading: Icon(Icons.description, color: Theme.of(context).colorScheme.primary),
+                                title: Text(
+                                  _ticket!.description,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w400,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                ),
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                            ),
+                            if (_ticket!.platform != null)
+                              Semantics(
+                                label: 'Platform',
+                                child: ListTile(
+                                  leading: Icon(Icons.computer, color: Theme.of(context).colorScheme.primary),
+                                  title: Text(
+                                    _ticket!.platform!,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            if (_ticket!.equipment != null)
+                              Semantics(
+                                label: 'Equipment',
+                                child: ListTile(
+                                  leading: Icon(Icons.build, color: Theme.of(context).colorScheme.primary),
+                                  title: Text(
+                                    _ticket!.equipment!,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                    maxLines: null,
+                                  ),
+                                  contentPadding: EdgeInsets.zero,
+                                ),
+                              ),
+                            if (_ticket!.assignedTo != null)
+                              Semantics(
+                                label: 'Assigned agent',
+                                child: FutureBuilder<DocumentSnapshot>(
+                                  future: _firestore.collection('users').doc(_ticket!.assignedTo).get(),
+                                  builder: (context, snapshot) {
+                                    if (snapshot.connectionState == ConnectionState.waiting) {
+                                      return ListTile(
+                                        leading: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
+                                        title: Text(
+                                          'Loading agent details...',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w400,
+                                            color: Theme.of(context).colorScheme.onSurface,
+                                          ),
+                                        ),
+                                        contentPadding: EdgeInsets.zero,
+                                      );
+                                    }
+                                    if (snapshot.hasError || !snapshot.hasData || !snapshot.data!.exists) {
+                                      return ListTile(
+                                        leading: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
+                                        title: Text(
+                                          'Unknown Agent',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w400,
+                                            color: Theme.of(context).colorScheme.onSurface,
+                                          ),
+                                        ),
+                                        contentPadding: EdgeInsets.zero,
+                                      );
+                                    }
+                                    final user = snapshot.data!;
+                                    final userData = user.data() as Map<String, dynamic>?;
+                                    final agentName = userData != null &&
+                                        userData.containsKey('fullName') &&
+                                        userData['fullName'] != null
+                                        ? userData['fullName']
+                                        : 'Agent ${user.id}';
+                                    return ListTile(
+                                      leading: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
+                                      title: Text(
+                                        agentName,
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w400,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                        ),
+                                      ),
+                                      contentPadding: EdgeInsets.zero,
+                                    );
+                                  },
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                if (_ticket!.reassigned && !widget.isEmployee) ...[
+                  const SizedBox(height: 16),
+                  SlideTransition(
+                    position: _slideAnimation,
+                    child: FadeTransition(
+                      opacity: _fadeAnimation,
+                      child: Card(
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        color: Theme.of(context).colorScheme.surface,
+                        child: ExpansionTile(
+                          title: Text(
+                            'Reassignment Details',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                          ),
+                          leading: Icon(Icons.swap_horiz, color: Theme.of(context).colorScheme.primary),
+                          childrenPadding: const EdgeInsets.all(16),
+                          children: [
+                            FutureBuilder<QuerySnapshot>(
+                              future: _firestore
+                                  .collection('reassigned_tickets')
+                                  .where('ticketId', isEqualTo: widget.ticketId)
+                                  .where('newAgentId', isNull: true)
+                                  .orderBy('timestamp', descending: true)
+                                  .limit(1)
+                                  .get(),
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState == ConnectionState.waiting) {
+                                  return const CircularProgressIndicator();
+                                }
+                                if (snapshot.hasError) {
+                                  print('Error fetching reassignment details: ${snapshot.error}');
+                                  return Text(
+                                    'Error loading reassignment details',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                  );
+                                }
+                                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                                  return Text(
+                                    'Reassignment details not found',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                    ),
+                                  );
+                                }
+
+                                final reassignmentDoc = snapshot.data!.docs.first;
+                                final sentToModeratorBy = reassignmentDoc['sentToModeratorBy'] as String?;
+                                final reassignmentReason = reassignmentDoc['details'] as String?;
+
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (sentToModeratorBy != null)
+                                      Semantics(
+                                        label: 'Sent to moderator by',
+                                        child: FutureBuilder<DocumentSnapshot>(
+                                          future: _firestore.collection('users').doc(sentToModeratorBy).get(),
+                                          builder: (context, userSnapshot) {
+                                            if (userSnapshot.connectionState == ConnectionState.waiting) {
+                                              return Text(
+                                                'Loading agent details...',
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w400,
+                                                  color: Theme.of(context).colorScheme.onSurface,
+                                                ),
+                                              );
+                                            }
+                                            if (userSnapshot.hasError ||
+                                                !userSnapshot.hasData ||
+                                                !userSnapshot.data!.exists) {
+                                              return Text(
+                                                'Sent to Moderator by: Unknown Agent',
+                                                style: GoogleFonts.poppins(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w400,
+                                                  color: Theme.of(context).colorScheme.onSurface,
+                                                ),
+                                              );
+                                            }
+                                            final user = userSnapshot.data!;
+                                            final userData = user.data() as Map<String, dynamic>?;
+                                            final agentName = userData != null &&
+                                                userData.containsKey('fullName') &&
+                                                userData['fullName'] != null
+                                                ? userData['fullName']
+                                                : 'Agent ${user.id}';
+                                            return Text(
+                                              'Sent to Moderator by: $agentName',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w400,
+                                                color: Theme.of(context).colorScheme.onSurface,
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    if (reassignmentReason != null && reassignmentReason.isNotEmpty) ...[
+                                      const SizedBox(height: 8),
+                                      Semantics(
+                                        label: 'Reason for reassignment',
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Reason',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w600,
+                                                color: Theme.of(context).colorScheme.onSurface,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              reassignmentReason,
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.w400,
+                                                color: Theme.of(context).colorScheme.onSurface,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _isUpdating ? null : _startConversationWithCreator,
-            child: const Text('Chat with Creator'),
           ),
-        ],
-      ),
+        ),
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Column(
+            children: [
+              const Spacer(),
+              Semantics(
+                label: 'Chat with ticket creator',
+                child: AnimatedScale(
+                  scale: 1.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: GestureDetector(
+                      onTapDown: (_) => setState(() {}),
+                      onTapUp: (_) => _startConversationWithCreator(),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Theme.of(context).colorScheme.primary.withOpacity(0.9),
+                              Theme.of(context).colorScheme.secondary.withOpacity(0.9),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: Center(
+                          child: Text(
+                            'Chat with Creator',
+                            style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Theme.of(context).colorScheme.onPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'Ticket Details',
+          style: GoogleFonts.poppins(
+            fontSize: 24,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.onBackground,
+          ),
+        ),
+        if (widget.isAgent)
+          Semantics(
+            label: 'Edit ticket options',
+            child: IconButton(
+              icon: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
+              onPressed: _isUpdating ? null : () => _showAgentOptions(context),
+            ),
+          ),
+      ],
     );
   }
 }

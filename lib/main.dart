@@ -3,17 +3,21 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'screens/loginScreen.dart';
 import 'screens/signup_screen.dart';
 import 'screens/profile_personalization_screen.dart';
 import 'screens/role_based_main_screen.dart';
 import 'screens/waiting_for_approval_screen.dart';
-import 'screens/splashScreen.dart'; // Import the splash screen
+import 'screens/splashScreen.dart';
+import 'screens/agent_dashboard.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-  runApp(MyApp());
+  await dotenv.load(fileName: ".env");
+  runApp(const MyApp());
 }
 
 class MyApp extends StatefulWidget {
@@ -32,18 +36,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initializeAuthListener();
-    _updateUserActivity(true); // App started
+    _updateUserActivity(true);
   }
 
   void _initializeAuthListener() {
     _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user == null && _lastActiveUserId != null) {
-        // User logged out - mark inactive immediately
         await _forceUpdateUserActivity(_lastActiveUserId!, false);
       }
       _lastActiveUserId = user?.uid;
       if (user != null) {
-        // User logged in - mark active
         await _updateUserActivity(true);
       }
     });
@@ -53,7 +55,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void dispose() {
     _authStateSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
-    _updateUserActivity(false); // App closing
+    _updateUserActivity(false);
     super.dispose();
   }
 
@@ -61,12 +63,12 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        _updateUserActivity(true); // App came to foreground
+        _updateUserActivity(true);
         break;
       case AppLifecycleState.inactive:
       case AppLifecycleState.paused:
       case AppLifecycleState.detached:
-        _updateUserActivity(false); // App went to background
+        _updateUserActivity(false);
         break;
       case AppLifecycleState.hidden:
         break;
@@ -102,7 +104,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       });
     } catch (e) {
       debugPrint('Error force updating user activity: $e');
-      // If update fails (document might not exist), try set with merge
       await FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
@@ -116,16 +117,95 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
+      title: 'Ticketing App',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6200EA),
+          brightness: Brightness.light,
+        ),
+        textTheme: GoogleFonts.poppinsTextTheme(),
+        cardTheme: CardTheme(
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        scaffoldBackgroundColor: Theme.of(context).colorScheme.background,
+        appBarTheme: AppBarTheme(
+          elevation: 0,
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          titleTextStyle: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Theme.of(context).colorScheme.surfaceVariant,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          labelStyle: GoogleFonts.poppins(),
+          hintStyle: GoogleFonts.poppins(color: Theme.of(context).hintColor),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+          ),
+        ),
       ),
-      initialRoute: '/splash', // Set splash screen as initial route
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6200EA),
+          brightness: Brightness.dark,
+        ),
+        textTheme: GoogleFonts.poppinsTextTheme(),
+        cardTheme: CardTheme(
+          elevation: 3,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
+        scaffoldBackgroundColor: Theme.of(context).colorScheme.background,
+        appBarTheme: AppBarTheme(
+          elevation: 0,
+          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          titleTextStyle: GoogleFonts.poppins(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.onPrimaryContainer,
+          ),
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Theme.of(context).colorScheme.surfaceVariant,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+          labelStyle: GoogleFonts.poppins(),
+          hintStyle: GoogleFonts.poppins(color: Theme.of(context).hintColor),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            textStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+          ),
+        ),
+      ),
+      themeMode: ThemeMode.system,
+      initialRoute: '/splash',
       routes: {
-        '/splash': (context) => SplashScreen(), // Remove 'const' here
-        '/login': (context) => LoginScreen(),
-        '/signup': (context) => SignUpScreen(),
-        '/waiting': (context) => WaitingForApprovalScreen(),
+        '/splash': (context) => SplashScreen(), // Removed const
+        '/login': (context) => LoginScreen(), // Removed const
+        '/signup': (context) => SignUpScreen(), // Removed const
+        '/waiting': (context) => const WaitingForApprovalScreen(),
+        '/agent_dashboard': (context) => const AgentDashboard(),
       },
       onGenerateRoute: (settings) {
         if (settings.name == '/profile') {
@@ -145,7 +225,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
           );
         }
-        return null; // Let Flutter handle unknown routes
+        return null;
       },
     );
   }

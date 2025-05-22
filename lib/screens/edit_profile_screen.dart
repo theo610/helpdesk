@@ -3,16 +3,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
-class ProfileDetailsScreen extends StatefulWidget {
+class EditProfileScreen extends StatefulWidget {
   final String userId;
 
-  const ProfileDetailsScreen({required this.userId, Key? key}) : super(key: key);
+  const EditProfileScreen({required this.userId, Key? key}) : super(key: key);
 
   @override
-  _ProfileDetailsScreenState createState() => _ProfileDetailsScreenState();
+  _EditProfileScreenState createState() => _EditProfileScreenState();
 }
 
-class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with SingleTickerProviderStateMixin {
+class _EditProfileScreenState extends State<EditProfileScreen> with SingleTickerProviderStateMixin {
   String _selectedRole = 'employee';
   String? _selectedPlatform;
   List<String> _platforms = [];
@@ -70,7 +70,6 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
       }
     } catch (e) {
       setState(() => _isLoading = false);
-      print('Error fetching user data: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -85,15 +84,13 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
 
   Future<void> _loadPlatforms() async {
     try {
-      final platformsSnapshot =
-      await FirebaseFirestore.instance.collection('platforms').get();
+      final platformsSnapshot = await FirebaseFirestore.instance.collection('platforms').get();
       setState(() {
         _platforms = platformsSnapshot.docs
             .map((doc) => doc.data()['designation'] as String)
             .toList();
       });
     } catch (e) {
-      print('Error loading suivanplatforms: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -106,13 +103,11 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
     }
   }
 
-  Future<void> _approveProfile() async {
+  Future<void> _saveProfile() async {
     try {
       setState(() => _isLoading = true);
       final updateData = {
-        'isApproved': true,
         'role': _selectedRole,
-        'isActive': true,
         'lastUpdated': FieldValue.serverTimestamp(),
       };
 
@@ -132,7 +127,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Profile approved successfully!',
+            'Profile updated successfully!',
             style: GoogleFonts.poppins(),
           ),
           backgroundColor: Theme.of(context).colorScheme.primary,
@@ -140,58 +135,10 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
       );
       Navigator.pop(context);
     } catch (e) {
-      print('Error approving profile: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Error approving profile: $e',
-            style: GoogleFonts.poppins(),
-          ),
-          backgroundColor: Theme.of(context).colorScheme.error,
-        ),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  Future<void> _denyProfile() async {
-    try {
-      setState(() => _isLoading = true);
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.userId)
-          .get();
-      if (userDoc.exists) {
-        await FirebaseFirestore.instance
-            .collection('denied_users')
-            .doc(widget.userId)
-            .set({
-          ...userDoc.data()!,
-          'status': 'Denied',
-          'deniedAt': FieldValue.serverTimestamp(),
-        });
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(widget.userId)
-            .delete();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Profile denied and deleted.',
-              style: GoogleFonts.poppins(),
-            ),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
-        Navigator.pop(context);
-      }
-    } catch (e) {
-      print('Error denying profile: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Error denying profile: $e',
+            'Error updating profile: $e',
             style: GoogleFonts.poppins(),
           ),
           backgroundColor: Theme.of(context).colorScheme.error,
@@ -271,7 +218,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
                             if (_selectedRole == 'agent' || _selectedRole == 'moderator')
                               _buildPlatformDropdown(),
                             const SizedBox(height: 24),
-                            _buildActionButtons(),
+                            _buildSaveButton(),
                           ],
                         ),
                       ),
@@ -293,7 +240,7 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(
-            'Profile Details',
+            'Edit Profile',
             style: GoogleFonts.poppins(
               fontSize: 24,
               fontWeight: FontWeight.w600,
@@ -442,75 +389,38 @@ class _ProfileDetailsScreenState extends State<ProfileDetailsScreen> with Single
     );
   }
 
-  Widget _buildActionButtons() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        Semantics(
-          label: 'Approve profile',
-          child: SizedBox(
-            width: 150,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _approveProfile,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 2,
-                shadowColor: Colors.black.withOpacity(0.2),
-              ),
-              child: _isLoading
-                  ? CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Theme.of(context).colorScheme.onPrimary,
-                ),
-              )
-                  : Text(
-                'Approve',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  color: Theme.of(context).colorScheme.onPrimary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
+  Widget _buildSaveButton() {
+    return Semantics(
+      label: 'Save profile changes',
+      child: SizedBox(
+        width: 150,
+        height: 50,
+        child: ElevatedButton(
+          onPressed: _isLoading ? null : _saveProfile,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.primary,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            elevation: 2,
+            shadowColor: Colors.black.withOpacity(0.2),
+          ),
+          child: _isLoading
+              ? CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(
+              Theme.of(context).colorScheme.onPrimary,
+            ),
+          )
+              : Text(
+            'Save',
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onPrimary,
+              fontWeight: FontWeight.w500,
             ),
           ),
         ),
-        Semantics(
-          label: 'Deny profile',
-          child: SizedBox(
-            width: 150,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _isLoading ? null : _denyProfile,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                elevation: 2,
-                shadowColor: Colors.black.withOpacity(0.2),
-              ),
-              child: _isLoading
-                  ? CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(
-                  Theme.of(context).colorScheme.onPrimary,
-                ),
-              )
-                  : Text(
-                'Deny',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  color: Theme.of(context).colorScheme.onPrimary,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

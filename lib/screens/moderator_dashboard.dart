@@ -2,11 +2,14 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../models/ticket_model.dart';
-import 'ticketDetailsScreen.dart';
+import 'TicketDetailsScreen.dart';
+import 'AssignEquipmentScreen.dart';
+import 'Stats_Screen.dart';
 
-// Reusing the SearchBar widget from AgentDashboard
 class SearchBar extends StatefulWidget {
   final String initialQuery;
   final Function(String) onSearchChanged;
@@ -50,30 +53,64 @@ class _SearchBarState extends State<SearchBar> {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: _controller,
-      autofocus: true,
-      decoration: InputDecoration(
-        hintText: 'Search tickets...',
-        border: const OutlineInputBorder(),
-        hintStyle: const TextStyle(color: Colors.grey),
-        suffixIcon: _controller.text.isNotEmpty
-            ? IconButton(
-          icon: const Icon(Icons.clear),
-          onPressed: () {
-            _controller.clear();
-            widget.onClear();
-          },
-        )
-            : null,
+    return Semantics(
+      label: 'Search tickets',
+      child: AnimatedOpacity(
+        opacity: 1.0,
+        duration: const Duration(milliseconds: 500),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TextField(
+            controller: _controller,
+            autofocus: true,
+            style: GoogleFonts.poppins(
+              color: Theme.of(context).colorScheme.onSurface,
+              fontSize: 16,
+            ),
+            decoration: InputDecoration(
+              hintText: 'Search tickets...',
+              hintStyle: GoogleFonts.poppins(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 16,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              filled: true,
+              fillColor: Theme.of(context).colorScheme.surface,
+              prefixIcon: Icon(Icons.search, color: Theme.of(context).colorScheme.primary),
+              suffixIcon: _controller.text.isNotEmpty
+                  ? IconButton(
+                icon: Icon(Icons.clear, color: Theme.of(context).colorScheme.primary),
+                onPressed: () {
+                  _controller.clear();
+                  widget.onClear();
+                },
+              )
+                  : null,
+              contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
+            ),
+            onChanged: (value) {
+              setState(() {});
+              if (_debounce?.isActive ?? false) _debounce!.cancel();
+              _debounce = Timer(const Duration(milliseconds: 500), () {
+                widget.onSearchChanged(value);
+              });
+            },
+          ),
+        ),
       ),
-      onChanged: (value) {
-        setState(() {}); // To update the suffixIcon visibility
-        if (_debounce?.isActive ?? false) _debounce!.cancel();
-        _debounce = Timer(const Duration(milliseconds: 500), () {
-          widget.onSearchChanged(value);
-        });
-      },
     );
   }
 }
@@ -85,7 +122,8 @@ class ModeratorDashboard extends StatefulWidget {
   _ModeratorDashboardState createState() => _ModeratorDashboardState();
 }
 
-class _ModeratorDashboardState extends State<ModeratorDashboard> {
+class _ModeratorDashboardState extends State<ModeratorDashboard> with SingleTickerProviderStateMixin {
+  int _selectedIndex = 0;
   final String userId = FirebaseAuth.instance.currentUser?.uid ?? '';
   final FirebaseFirestore firestore = FirebaseFirestore.instance;
   final int _pageSize = 15;
@@ -97,29 +135,44 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
   bool _isLoadingMorePlatform = false;
   bool _isLoadingSearch = false;
   bool _isSearchMode = false;
-
+  bool _isLoadingPlatform = true; // New flag for platform loading
   String _filterStatus = 'all';
   String _searchQuery = '';
   String? _priorityFilter;
   String? _platformFilter;
-
   List<Ticket> _reassignedTickets = [];
   List<Ticket> _platformTickets = [];
   final ScrollController _scrollController = ScrollController();
+  late AnimationController _dialogAnimationController;
+  late Animation<double> _dialogScaleAnimation;
 
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_scrollListener);
+    _dialogAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _dialogScaleAnimation = Tween<double>(begin: 0.9, end: 1.0).animate(
+      CurvedAnimation(parent: _dialogAnimationController, curve: Curves.easeOut),
+    );
+    _isLoadingPlatform = true; // Set loading state
     _loadModeratorPlatform().then((_) {
-      _loadInitialReassignedTickets();
-      _loadInitialPlatformTickets();
+      setState(() {
+        _isLoadingPlatform = false; // Platform loading complete
+      });
+      if (_platformFilter != null) {
+        _loadInitialReassignedTickets();
+        _loadInitialPlatformTickets();
+      }
     });
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _dialogAnimationController.dispose();
     super.dispose();
   }
 
@@ -131,12 +184,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       }
       var role = userDoc['role'] as String?;
       var platform = userDoc['platform'] as String?;
-      print('Moderator role: $role, platform: $platform');
       if (role != 'moderator') {
         throw Exception('User is not a moderator: role=$role');
       }
       if (platform != null) {
-        // Normalize platform name to handle special characters or whitespace
         setState(() => _platformFilter = platform.trim());
       } else {
         throw Exception('Moderator platform not set');
@@ -145,15 +196,18 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       print('Error loading moderator platform: $e');
       setState(() => _platformFilter = null);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Platform not set. Please update your profile.')),
+        SnackBar(
+          content: Text('Platform not set. Please update your profile.', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
+    } finally {
+      setState(() => _isLoadingPlatform = false); // Ensure loading state is updated
     }
   }
 
   void _scrollListener() {
-    if (_scrollController.position.pixels ==
-        _scrollController.position.maxScrollExtent &&
-        !_isSearchMode) {
+    if (_scrollController.position.pixels == _scrollController.position.maxScrollExtent && !_isSearchMode) {
       if (_hasMoreReassigned && !_isLoadingMoreReassigned) {
         _loadMoreReassignedTickets();
       } else if (_hasMorePlatform && !_isLoadingMorePlatform) {
@@ -173,19 +227,13 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
   }
 
   Future<void> _loadMoreReassignedTickets() async {
-    if (!_hasMoreReassigned ||
-        _isLoadingMoreReassigned ||
-        _platformFilter == null ||
-        _isSearchMode) {
-      print(
-          'Skipping loadMoreReassignedTickets: hasMore=$_hasMoreReassigned, loading=$_isLoadingMoreReassigned, platformFilter=$_platformFilter, searchMode=$_isSearchMode');
+    if (!_hasMoreReassigned || _isLoadingMoreReassigned || _platformFilter == null || _isSearchMode) {
       return;
     }
 
     setState(() => _isLoadingMoreReassigned = true);
 
     try {
-      // Query reassigned_tickets to get ticket IDs
       var reassignedQuery = firestore
           .collection('reassigned_tickets')
           .where('newAgentId', isNull: true)
@@ -198,25 +246,18 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       reassignedQuery = reassignedQuery.limit(_pageSize);
 
       final reassignedSnapshot = await reassignedQuery.get();
-      print('Found ${reassignedSnapshot.docs.length} reassigned tickets');
       if (reassignedSnapshot.docs.isEmpty) {
         setState(() => _hasMoreReassigned = false);
         setState(() => _isLoadingMoreReassigned = false);
         return;
       }
 
-      // Extract ticket IDs and split into batches of 10 (Firestore whereIn limit)
-      final ticketIds =
-      reassignedSnapshot.docs.map((doc) => doc['ticketId'] as String).toList();
-      print('Ticket IDs: $ticketIds');
+      final ticketIds = reassignedSnapshot.docs.map((doc) => doc['ticketId'] as String).toList();
       const batchSize = 10;
       final List<Ticket> newTickets = [];
 
       for (var i = 0; i < ticketIds.length; i += batchSize) {
-        final batch = ticketIds.sublist(
-            i, i + batchSize > ticketIds.length ? ticketIds.length : i + batchSize);
-        print('Fetching tickets for batch: $batch');
-
+        final batch = ticketIds.sublist(i, i + batchSize > ticketIds.length ? ticketIds.length : i + batchSize);
         var ticketsQuery = firestore
             .collection('tickets')
             .where('platform', isEqualTo: _platformFilter)
@@ -225,8 +266,6 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
             .orderBy('createdAt', descending: true);
 
         final ticketsSnapshot = await ticketsQuery.get();
-        print('Fetched ${ticketsSnapshot.docs.length} tickets for batch');
-
         newTickets.addAll(
           ticketsSnapshot.docs
               .map(Ticket.fromFirestore)
@@ -235,7 +274,6 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
         );
       }
 
-      print('Total new tickets after filtering: ${newTickets.length}');
       if (newTickets.isEmpty) {
         setState(() => _hasMoreReassigned = false);
       } else {
@@ -245,7 +283,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
     } catch (e) {
       print('Error loading reassigned tickets: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading reassigned tickets: $e')),
+        SnackBar(
+          content: Text('Error loading reassigned tickets: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } finally {
       setState(() => _isLoadingMoreReassigned = false);
@@ -263,10 +304,7 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
   }
 
   Future<void> _loadMorePlatformTickets() async {
-    if (!_hasMorePlatform ||
-        _isLoadingMorePlatform ||
-        _platformFilter == null ||
-        _isSearchMode) {
+    if (!_hasMorePlatform || _isLoadingMorePlatform || _platformFilter == null || _isSearchMode) {
       return;
     }
 
@@ -307,7 +345,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
     } catch (e) {
       print('Error loading platform tickets: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error loading platform tickets: $e')),
+        SnackBar(
+          content: Text('Error loading platform tickets: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } finally {
       setState(() => _isLoadingMorePlatform = false);
@@ -347,7 +388,6 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
     });
 
     try {
-      // Search reassigned tickets
       var reassignedTitleQuery = firestore
           .collection('tickets')
           .where('platform', isEqualTo: _platformFilter)
@@ -357,12 +397,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
           .endAt(['${query.toLowerCase()}\uf8ff']);
 
       if (_filterStatus != 'all') {
-        reassignedTitleQuery =
-            reassignedTitleQuery.where('status', isEqualTo: _filterStatus);
+        reassignedTitleQuery = reassignedTitleQuery.where('status', isEqualTo: _filterStatus);
       }
       if (_priorityFilter != null) {
-        reassignedTitleQuery =
-            reassignedTitleQuery.where('priority', isEqualTo: _priorityFilter);
+        reassignedTitleQuery = reassignedTitleQuery.where('priority', isEqualTo: _priorityFilter);
       }
 
       var reassignedDescQuery = firestore
@@ -374,15 +412,12 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
           .endAt(['${query.toLowerCase()}\uf8ff']);
 
       if (_filterStatus != 'all') {
-        reassignedDescQuery =
-            reassignedDescQuery.where('status', isEqualTo: _filterStatus);
+        reassignedDescQuery = reassignedDescQuery.where('status', isEqualTo: _filterStatus);
       }
       if (_priorityFilter != null) {
-        reassignedDescQuery =
-            reassignedDescQuery.where('priority', isEqualTo: _priorityFilter);
+        reassignedDescQuery = reassignedDescQuery.where('priority', isEqualTo: _priorityFilter);
       }
 
-      // Search platform tickets (non-reassigned)
       var platformTitleQuery = firestore
           .collection('tickets')
           .where('platform', isEqualTo: _platformFilter)
@@ -392,12 +427,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
           .endAt(['${query.toLowerCase()}\uf8ff']);
 
       if (_filterStatus != 'all') {
-        platformTitleQuery =
-            platformTitleQuery.where('status', isEqualTo: _filterStatus);
+        platformTitleQuery = platformTitleQuery.where('status', isEqualTo: _filterStatus);
       }
       if (_priorityFilter != null) {
-        platformTitleQuery =
-            platformTitleQuery.where('priority', isEqualTo: _priorityFilter);
+        platformTitleQuery = platformTitleQuery.where('priority', isEqualTo: _priorityFilter);
       }
 
       var platformDescQuery = firestore
@@ -409,12 +442,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
           .endAt(['${query.toLowerCase()}\uf8ff']);
 
       if (_filterStatus != 'all') {
-        platformDescQuery =
-            platformDescQuery.where('status', isEqualTo: _filterStatus);
+        platformDescQuery = platformDescQuery.where('status', isEqualTo: _filterStatus);
       }
       if (_priorityFilter != null) {
-        platformDescQuery =
-            platformDescQuery.where('priority', isEqualTo: _priorityFilter);
+        platformDescQuery = platformDescQuery.where('priority', isEqualTo: _priorityFilter);
       }
 
       final reassignedTitleSnapshot = await reassignedTitleQuery.get();
@@ -446,7 +477,10 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error searching tickets: $e')),
+        SnackBar(
+          content: Text('Error searching tickets: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     } finally {
       setState(() => _isLoadingSearch = false);
@@ -455,36 +489,52 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
 
   Future<void> _updateTicketStatus(String ticketId, String newStatus) async {
     try {
-      await firestore.collection('tickets').doc(ticketId).update({
+      final ticketRef = firestore.collection('tickets').doc(ticketId);
+      final currentTicketDoc = await ticketRef.get();
+      final currentTicket = Ticket.fromFirestore(currentTicketDoc);
+
+      final ticketData = <String, dynamic>{
         'status': newStatus,
         'updatedAt': FieldValue.serverTimestamp(),
-      });
+      };
+
+      if (newStatus == 'in_progress' && currentTicket.firstResponseAt == null) {
+        ticketData['firstResponseAt'] = FieldValue.serverTimestamp();
+      }
+      if (newStatus == 'resolved' && currentTicket.resolvedAt == null) {
+        ticketData['resolvedAt'] = FieldValue.serverTimestamp();
+      }
+
+      await ticketRef.update(ticketData);
       _loadInitialReassignedTickets();
       _loadInitialPlatformTickets();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket status updated!')),
+        SnackBar(
+          content: Text('Ticket status updated!', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error updating ticket: $e')),
+        SnackBar(
+          content: Text('Error updating ticket: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     }
   }
 
   Future<void> _assignTicket(String ticketId, String newAgentId) async {
     try {
-      // Verify the user's role
       final userDoc = await firestore.collection('users').doc(userId).get();
       if (!userDoc.exists) {
         throw Exception('User document not found');
       }
       final userRole = userDoc.data()!['role'] as String? ?? 'unknown';
-      print('Assigning ticket: user role=$userRole');
       if (userRole != 'moderator') {
         throw Exception('Only moderators can assign tickets to agents');
       }
 
-      // Fetch the ticket to get platform, priority, and status
       final ticketDoc = await firestore.collection('tickets').doc(ticketId).get();
       if (!ticketDoc.exists) {
         throw Exception('Ticket not found');
@@ -494,14 +544,11 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       final currentPriority = ticketData['priority'] as String;
       final currentStatus = ticketData['status'] as String;
 
-      print('Ticket platform: $ticketPlatform, Moderator platform: $_platformFilter');
       if (ticketPlatform != _platformFilter) {
         throw Exception('Platform mismatch: Ticket platform ($ticketPlatform) does not match moderator platform ($_platformFilter)');
       }
 
-      // Run a transaction to update both tickets and reassigned_tickets atomically
       await firestore.runTransaction((transaction) async {
-        // Update the ticket
         final ticketRef = firestore.collection('tickets').doc(ticketId);
         transaction.update(ticketRef, {
           'assignedTo': newAgentId,
@@ -511,7 +558,6 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        // Update the reassigned_tickets entry
         final reassignedDocs = await firestore
             .collection('reassigned_tickets')
             .where('ticketId', isEqualTo: ticketId)
@@ -521,7 +567,6 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
           throw Exception('No pending reassignment found for this ticket');
         }
         for (var doc in reassignedDocs.docs) {
-          print('Updating reassigned_tickets document: ${doc.id}');
           transaction.update(doc.reference, {
             'newAgentId': newAgentId,
             'timestamp': FieldValue.serverTimestamp(),
@@ -532,12 +577,18 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       await _loadInitialReassignedTickets();
       await _loadInitialPlatformTickets();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ticket assigned!')),
+        SnackBar(
+          content: Text('Ticket assigned!', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+        ),
       );
     } catch (e) {
       print('Error assigning ticket: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error assigning ticket: $e')),
+        SnackBar(
+          content: Text('Error assigning ticket: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     }
   }
@@ -545,30 +596,52 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
   void _showTicketOptions(BuildContext context, Ticket ticket) {
     showModalBottomSheet(
       context: context,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      backgroundColor: Theme.of(context).colorScheme.surface,
       builder: (context) {
         return SafeArea(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.edit),
-                title: const Text('Change Status'),
+                leading: Icon(Icons.edit, color: Theme.of(context).colorScheme.primary),
+                title: Text(
+                  'Change Status',
+                  style: GoogleFonts.poppins(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _showStatusChangeDialog(context, ticket);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.person_add),
-                title: const Text('Assign Ticket'),
+                leading: Icon(Icons.person_add, color: Theme.of(context).colorScheme.primary),
+                title: Text(
+                  'Assign Ticket',
+                  style: GoogleFonts.poppins(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _showAssignDialog(context, ticket);
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.chat),
-                title: const Text('Add Response'),
+                leading: Icon(Icons.chat, color: Theme.of(context).colorScheme.primary),
+                title: Text(
+                  'Add Response',
+                  style: GoogleFonts.poppins(
+                    color: Theme.of(context).colorScheme.onSurface,
+                    fontSize: 16,
+                  ),
+                ),
                 onTap: () {
                   Navigator.pop(context);
                   _viewTicketDetails(context, ticket.id, initialFocusResponse: true);
@@ -586,29 +659,37 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Change Ticket Status'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          title: Text(
+            'Change Ticket Status',
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                title: const Text('Open'),
-                leading: const Icon(Icons.circle, color: Colors.orange),
+                title: Text('Open', style: GoogleFonts.poppins()),
+                leading: const Icon(Icons.circle, color: Colors.orange, size: 16),
                 onTap: () {
                   Navigator.pop(context);
                   _updateTicketStatus(ticket.id, 'open');
                 },
               ),
               ListTile(
-                title: const Text('In Progress'),
-                leading: const Icon(Icons.circle, color: Colors.blue),
+                title: Text('In Progress', style: GoogleFonts.poppins()),
+                leading: const Icon(Icons.circle, color: Colors.blue, size: 16),
                 onTap: () {
                   Navigator.pop(context);
                   _updateTicketStatus(ticket.id, 'in_progress');
                 },
               ),
               ListTile(
-                title: const Text('Resolved'),
-                leading: const Icon(Icons.circle, color: Colors.green),
+                title: Text('Resolved', style: GoogleFonts.poppins()),
+                leading: const Icon(Icons.circle, color: Colors.green, size: 16),
                 onTap: () {
                   Navigator.pop(context);
                   _updateTicketStatus(ticket.id, 'resolved');
@@ -616,6 +697,15 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
               ),
             ],
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.poppins(color: Theme.of(context).colorScheme.primary),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -626,7 +716,15 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Assign Ticket'),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          title: Text(
+            'Assign Ticket',
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
           content: FutureBuilder<QuerySnapshot>(
             future: firestore
                 .collection('users')
@@ -635,7 +733,13 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                 .get(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
+                return Center(
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                );
               }
 
               final agents = snapshot.data!.docs;
@@ -652,7 +756,13 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                         ? agentData['fullName']
                         : 'Agent ${agent.id}';
                     return ListTile(
-                      title: Text(agentName),
+                      title: Text(
+                        agentName,
+                        style: GoogleFonts.poppins(
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontSize: 14,
+                        ),
+                      ),
                       onTap: () {
                         Navigator.pop(context);
                         _assignTicket(ticket.id, agent.id);
@@ -663,6 +773,15 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
               );
             },
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.poppins(color: Theme.of(context).colorScheme.primary),
+              ),
+            ),
+          ],
         );
       },
     );
@@ -671,218 +790,543 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Moderator Dashboard'),
-        actions: [
-          IconButton(
-            icon: Icon(_isSearchMode ? Icons.cancel : Icons.search),
-            onPressed: () {
-              setState(() {
-                _isSearchMode = !_isSearchMode;
-                if (!_isSearchMode) {
-                  _searchQuery = '';
-                  _searchTickets('');
-                }
-              });
-            },
+      drawer: NavigationDrawer(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (int index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        children: [
+          DrawerHeader(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            child: Text(
+              'Moderator Menu',
+              style: GoogleFonts.poppins(
+                color: Theme.of(context).colorScheme.onPrimary,
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
-          _buildFilterMenu(),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isSearchMode
-                ? null
-                : () {
-              _loadInitialReassignedTickets();
-              _loadInitialPlatformTickets();
-            },
-            tooltip: 'Refresh Tickets',
+          NavigationDrawerDestination(
+            icon: Icon(Icons.dashboard, color: Theme.of(context).colorScheme.onSurface),
+            label: Text(
+              'Ticket Dashboard',
+              style: GoogleFonts.poppins(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 16,
+              ),
+            ),
+            selectedIcon: Icon(Icons.dashboard, color: Theme.of(context).colorScheme.primary),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.settings_applications, color: Theme.of(context).colorScheme.onSurface),
+            label: Text(
+              'Assign Equipment',
+              style: GoogleFonts.poppins(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 16,
+              ),
+            ),
+            selectedIcon: Icon(Icons.settings_applications, color: Theme.of(context).colorScheme.primary),
+          ),
+          NavigationDrawerDestination(
+            icon: Icon(Icons.bar_chart, color: Theme.of(context).colorScheme.onSurface),
+            label: Text(
+              'Statistics',
+              style: GoogleFonts.poppins(
+                color: Theme.of(context).colorScheme.onSurface,
+                fontSize: 16,
+              ),
+            ),
+            selectedIcon: Icon(Icons.bar_chart, color: Theme.of(context).colorScheme.primary),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          if (_isSearchMode)
-            Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: SearchBar(
-                initialQuery: _searchQuery,
-                onSearchChanged: _searchTickets,
-                onClear: () {
-                  setState(() {
-                    _searchQuery = '';
-                    _isSearchMode = false;
-                  });
-                  _searchTickets('');
-                },
-              ),
-            ),
-          Expanded(
-            child: Stack(
-              children: [
-                _platformFilter == null
-                    ? const Center(
-                  child: Text(
-                    'Platform not set. Please complete your profile.',
-                    textAlign: TextAlign.center,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.background,
+              Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.8),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildHeader(),
+              if (_selectedIndex == 0 && _isSearchMode)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
+                  child: SearchBar(
+                    initialQuery: _searchQuery,
+                    onSearchChanged: _searchTickets,
+                    onClear: () {
+                      setState(() {
+                        _searchQuery = '';
+                        _isSearchMode = false;
+                      });
+                      _searchTickets('');
+                    },
                   ),
-                )
-                    : _buildTicketList(),
-                if (_isLoadingSearch)
-                  const Center(child: CircularProgressIndicator()),
+                ),
+              Expanded(child: _buildScreen()),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Builder(
+                  builder: (context) => IconButton(
+                    icon: Icon(
+                      Icons.menu,
+                      color: Theme.of(context).colorScheme.primary,
+                      size: 24,
+                    ),
+                    onPressed: () => Scaffold.of(context).openDrawer(),
+                    tooltip: 'Open menu',
+                  ),
+                ),
+                Flexible(
+                  child: Text(
+                    _selectedIndex == 0
+                        ? 'Platform Tickets'
+                        : _selectedIndex == 1
+                        ? 'Assign Equipment'
+                        : 'Statistics',
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.onBackground,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
           ),
+          if (_selectedIndex == 0)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: Icon(
+                    _isSearchMode ? Icons.cancel : Icons.search,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 24,
+                  ),
+                  onPressed: () {
+                    setState(() {
+                      _isSearchMode = !_isSearchMode;
+                      if (!_isSearchMode) {
+                        _searchQuery = '';
+                        _searchTickets('');
+                      }
+                    });
+                  },
+                  tooltip: _isSearchMode ? 'Cancel Search' : 'Search Tickets',
+                ),
+                _buildFilterMenu(),
+                IconButton(
+                  icon: Icon(
+                    Icons.refresh,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 24,
+                  ),
+                  onPressed: _isSearchMode
+                      ? null
+                      : () {
+                    _loadInitialReassignedTickets();
+                    _loadInitialPlatformTickets();
+                  },
+                  tooltip: 'Refresh Tickets',
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
 
   Widget _buildFilterMenu() {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.filter_alt),
-      onSelected: (value) {
-        if (value == 'filter') {
-          _showFilterDialog();
-        }
-      },
-      itemBuilder: (context) => [
-        PopupMenuItem(
-          value: 'filter',
-          child: Row(
-            children: const [
-              Icon(Icons.filter_alt),
-              SizedBox(width: 8),
-              Text('Filter Tickets'),
-            ],
-          ),
-        ),
-      ],
+    return IconButton(
+      icon: Icon(
+        Icons.filter_alt,
+        color: Theme.of(context).colorScheme.primary,
+        size: 24,
+      ),
+      onPressed: _showFilterDialog,
+      tooltip: 'Filter Tickets',
     );
   }
 
   void _showFilterDialog() {
+    _dialogAnimationController.forward(from: 0);
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            return AlertDialog(
-              title: const Text('Filter Tickets'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  DropdownButtonFormField<String>(
-                    value: _filterStatus,
-                    items: [
-                      const DropdownMenuItem(
-                        value: 'all',
-                        child: Text('All Statuses'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'open',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.circle, color: Colors.orange, size: 16),
-                            SizedBox(width: 8),
-                            Text('Open'),
-                          ],
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'in_progress',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.circle, color: Colors.blue, size: 16),
-                            SizedBox(width: 8),
-                            Text('In Progress'),
-                          ],
-                        ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'resolved',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.circle, color: Colors.green, size: 16),
-                            SizedBox(width: 8),
-                            Text('Resolved'),
-                          ],
-                        ),
-                      ),
-                    ],
-                    onChanged: (value) => setState(() => _filterStatus = value!),
+            return ScaleTransition(
+              scale: _dialogScaleAnimation,
+              child: AlertDialog(
+                backgroundColor: Theme.of(context).colorScheme.surface,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                elevation: 0,
+                title: Text(
+                  'Filter Tickets',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: _priorityFilter,
-                    decoration: const InputDecoration(labelText: 'Priority'),
-                    items: [
-                      const DropdownMenuItem(
-                        value: null,
-                        child: Text('All Priorities'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'low',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.flag, color: Colors.green),
-                            SizedBox(width: 8),
-                            Text('Low'),
-                          ],
+                ),
+                content: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Status',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
                         ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'medium',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.flag, color: Colors.blue),
-                            SizedBox(width: 8),
-                            Text('Medium'),
-                          ],
+                        const SizedBox(height: 8),
+                        Semantics(
+                          label: 'Status filter',
+                          child: AnimatedOpacity(
+                            opacity: 1.0,
+                            duration: const Duration(milliseconds: 500),
+                            child: DropdownButtonFormField<String>(
+                              value: _filterStatus,
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: Theme.of(context).colorScheme.surfaceVariant,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    width: 1,
+                                  ),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              ),
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              dropdownColor: Theme.of(context).colorScheme.surface,
+                              icon: Icon(
+                                Icons.arrow_drop_down,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              selectedItemBuilder: (context) => [
+                                'all',
+                                'open',
+                                'in_progress',
+                                'resolved',
+                              ].map((value) => Text(
+                                value == 'all'
+                                    ? 'All Statuses'
+                                    : value == 'open'
+                                    ? 'Open'
+                                    : value == 'in_progress'
+                                    ? 'In Progress'
+                                    : 'Resolved',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              )).toList(),
+                              items: [
+                                DropdownMenuItem(
+                                  value: 'all',
+                                  child: Text(
+                                    'All Statuses',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'open',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.circle, color: Colors.orange, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'Open',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'in_progress',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.circle, color: Colors.blue, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'In Progress',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'resolved',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.circle, color: Colors.green, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'Resolved',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              onChanged: (value) => setState(() => _filterStatus = value!),
+                            ),
+                          ),
                         ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'high',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.flag, color: Colors.orange),
-                            SizedBox(width: 8),
-                            Text('High'),
-                          ],
+                        const SizedBox(height: 24),
+                        Text(
+                          'Priority',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
                         ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'critical',
-                        child: Row(
-                          children: const [
-                            Icon(Icons.flag, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Critical'),
-                          ],
+                        const SizedBox(height: 8),
+                        Semantics(
+                          label: 'Priority filter',
+                          child: AnimatedOpacity(
+                            opacity: 1.0,
+                            duration: const Duration(milliseconds: 500),
+                            child: DropdownButtonFormField<String>(
+                              value: _priorityFilter,
+                              decoration: InputDecoration(
+                                filled: true,
+                                fillColor: Theme.of(context).colorScheme.surfaceVariant,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: Theme.of(context).colorScheme.primary,
+                                    width: 1,
+                                  ),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              ),
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Theme.of(context).colorScheme.onSurface,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              dropdownColor: Theme.of(context).colorScheme.surface,
+                              icon: Icon(
+                                Icons.arrow_drop_down,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              selectedItemBuilder: (context) => [
+                                null,
+                                'low',
+                                'medium',
+                                'high',
+                                'critical',
+                              ].map((value) => Text(
+                                value == null
+                                    ? 'All Priorities'
+                                    : value == 'low'
+                                    ? 'Low'
+                                    : value == 'medium'
+                                    ? 'Medium'
+                                    : value == 'high'
+                                    ? 'High'
+                                    : 'Critical',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              )).toList(),
+                              items: [
+                                DropdownMenuItem(
+                                  value: null,
+                                  child: Text(
+                                    'All Priorities',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 14,
+                                      color: Theme.of(context).colorScheme.onSurface,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'low',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.flag, color: Colors.green, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'Low',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'medium',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.flag, color: Colors.blue, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'Medium',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'high',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.flag, color: Colors.orange, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'High',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                DropdownMenuItem(
+                                  value: 'critical',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.flag, color: Colors.red, size: 20),
+                                      const SizedBox(width: 16),
+                                      Text(
+                                        'Critical',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              onChanged: (value) => setState(() => _priorityFilter = value),
+                            ),
+                          ),
                         ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: Text(
+                      'Cancel',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                    ],
-                    onChanged: (value) => setState(() => _priorityFilter = value),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      if (_isSearchMode) {
+                        _searchTickets(_searchQuery);
+                      } else {
+                        _loadInitialReassignedTickets();
+                        _loadInitialPlatformTickets();
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    ),
+                    child: Text(
+                      'Apply',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
                   ),
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    if (_isSearchMode) {
-                      _searchTickets(_searchQuery);
-                    } else {
-                      _loadInitialReassignedTickets();
-                      _loadInitialPlatformTickets();
-                    }
-                  },
-                  child: const Text('Apply'),
-                ),
-              ],
             );
           },
         );
@@ -890,21 +1334,90 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
     );
   }
 
+  Widget _buildScreen() {
+    switch (_selectedIndex) {
+      case 0:
+        return Stack(
+          children: [
+            if (_isLoadingPlatform) // Show loading while platform is being fetched
+              Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              )
+            else if (_platformFilter == null) // Show error only after platform check
+              Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.error_outline,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Platform not set. Please complete your profile.',
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              )
+            else
+              _buildTicketList(),
+            if (_isLoadingSearch)
+              Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+          ],
+        );
+      case 1:
+        return const AssignEquipmentScreen();
+      case 2:
+        return const StatsScreen();
+      default:
+        return Center(
+          child: Text(
+            'Screen not found',
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+        );
+    }
+  }
+
   Widget _buildTicketList() {
     final allTickets = [..._reassignedTickets, ..._platformTickets];
-    if (allTickets.isEmpty &&
-        !_isLoadingMoreReassigned &&
-        !_isLoadingMorePlatform &&
-        !_isLoadingSearch) {
+    if (allTickets.isEmpty  && !_isLoadingMoreReassigned && !_isLoadingMorePlatform && !_isLoadingSearch) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.assignment, size: 48, color: Colors.grey),
+            Icon(
+              Icons.assignment,
+              size: 48,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(height: 16),
-            Text(_isSearchMode
-                ? 'No tickets match your search'
-                : 'No tickets found in your platform'),
+            Text(
+              _isSearchMode ? 'No tickets match your search' : 'No tickets found in your platform',
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
             if (_filterStatus != 'all' || _priorityFilter != null)
               TextButton(
                 onPressed: () {
@@ -919,7 +1432,13 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                     _loadInitialPlatformTickets();
                   }
                 },
-                child: const Text('Clear filters'),
+                child: Text(
+                  'Clear filters',
+                  style: GoogleFonts.poppins(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontSize: 14,
+                  ),
+                ),
               ),
           ],
         ),
@@ -933,43 +1452,63 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
         await _loadInitialReassignedTickets();
         await _loadInitialPlatformTickets();
       },
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        itemCount: allTickets.length +
-            (_hasMoreReassigned && _isLoadingMoreReassigned && !_isSearchMode ? 1 : 0) +
-            (_hasMorePlatform && _isLoadingMorePlatform && !_isSearchMode ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index >= allTickets.length) {
-            return const Center(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: CircularProgressIndicator(),
+      child: AnimationLimiter(
+        child: ListView.builder(
+          key: const Key('ticketList'),
+          controller: _scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          itemCount: allTickets.length +
+              (_hasMoreReassigned && _isLoadingMoreReassigned && !_isSearchMode ? 1 : 0) +
+              (_hasMorePlatform && _isLoadingMorePlatform && !_isSearchMode ? 1 : 0),
+          itemBuilder: (context, index) {
+            if (index >= allTickets.length) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                ),
+              );
+            }
+            final ticket = allTickets[index];
+            final isReassigned = _reassignedTickets.contains(ticket);
+            return AnimationConfiguration.staggeredList(
+              position: index,
+              duration: const Duration(milliseconds: 375),
+              child: SlideAnimation(
+                verticalOffset: 50.0,
+                child: FadeInAnimation(
+                  child: _buildTicketCard(ticket, isReassigned),
+                ),
               ),
             );
-          }
-          final ticket = allTickets[index];
-          final isReassigned = _reassignedTickets.contains(ticket);
-          return _buildTicketCard(ticket, isReassigned);
-        },
+          },
+        ),
       ),
     );
   }
 
   Widget _buildTicketCard(Ticket ticket, bool isReassigned) {
-    return GestureDetector(
-      onLongPress: () => _showTicketOptions(context, ticket),
+    final uniqueId = '${ticket.id.substring(0, 8)}-${DateFormat('yyMMddHHmm').format(ticket.createdAt)}';
+
+    return Semantics(
+      label: 'Ticket, tap to view, long press for options',
       child: Card(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        color: Theme.of(context).colorScheme.surface,
+        margin: const EdgeInsets.symmetric(vertical: 8),
         elevation: 2,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(16),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(16),
           onTap: () => _viewTicketDetails(context, ticket.id),
+          onLongPress: () => _showTicketOptions(context, ticket),
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -982,27 +1521,31 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                           Expanded(
                             child: Text(
                               ticket.title,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w600,
                                 fontSize: 16,
+                                color: Theme.of(context).colorScheme.onSurface,
                               ),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           if (isReassigned)
-                            const Padding(
-                              padding: EdgeInsets.only(left: 8),
-                              child: Chip(
-                                label: Text(
+                            Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.redAccent,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
                                   'Reassigned',
-                                  style: TextStyle(
+                                  style: GoogleFonts.poppins(
                                     color: Colors.white,
                                     fontSize: 12,
-                                    fontWeight: FontWeight.bold,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                backgroundColor: Colors.red,
-                                padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                               ),
                             ),
                         ],
@@ -1015,18 +1558,26 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                 Row(
                   children: [
                     _buildStatusChip(ticket.status),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 12),
                     Text(
-                      DateFormat('MMM dd, yyyy').format(ticket.createdAt),
-                      style: const TextStyle(
+                      'ID: $uniqueId',
+                      style: GoogleFonts.poppins(
                         fontSize: 12,
-                        color: Colors.grey,
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 8),
+                Text(
+                  DateFormat('MMM dd, yyyy • HH:mm').format(ticket.createdAt),
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
                 if (ticket.assignedTo != null) ...[
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   FutureBuilder<DocumentSnapshot>(
                     future: firestore.collection('users').doc(ticket.assignedTo).get(),
                     builder: (context, snapshot) {
@@ -1038,9 +1589,22 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                             userData['fullName'] != null
                             ? userData['fullName']
                             : 'Agent ${user.id}';
-                        return Text(
-                          'Assigned to: $agentName',
-                          style: const TextStyle(fontSize: 12),
+                        return Row(
+                          children: [
+                            Icon(
+                              Icons.person,
+                              size: 16,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Assigned to: $agentName',
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                color: Theme.of(context).colorScheme.onSurface,
+                              ),
+                            ),
+                          ],
                         );
                       }
                       return const SizedBox();
@@ -1049,26 +1613,58 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
                 ],
                 if (ticket.platform != null)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      'Platform: ${ticket.platform}',
-                      style: const TextStyle(fontSize: 12),
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.build,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Platform: ${ticket.platform}',
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 if (ticket.equipment != null)
                   Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      'Equipment: ${ticket.equipment}',
-                      style: const TextStyle(fontSize: 12),
-                      overflow: TextOverflow.ellipsis,
-                      maxLines: 1,
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.devices,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Equipment: ${ticket.equipment}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 14,
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 if (ticket.description.isNotEmpty) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   Text(
                     ticket.description,
+                    style: GoogleFonts.poppins(
+                      fontSize: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -1083,14 +1679,21 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
 
   Widget _buildPriorityIcon(String priority) {
     final priorityData = {
-      'low': const Icon(Icons.flag, color: Colors.green),
-      'medium': const Icon(Icons.flag, color: Colors.blue),
-      'high': const Icon(Icons.flag, color: Colors.orange),
-      'critical': const Icon(Icons.flag, color: Colors.red),
+      'low': {'icon': Icons.flag, 'color': Colors.green},
+      'medium': {'icon': Icons.flag, 'color': Colors.blue},
+      'high': {'icon': Icons.flag, 'color': Colors.orange},
+      'critical': {'icon': Icons.flag, 'color': Colors.red},
     };
-    return Tooltip(
-      message: priority.toUpperCase(),
-      child: priorityData[priority] ?? const Icon(Icons.flag),
+    return Semantics(
+      label: 'Priority: $priority',
+      child: Tooltip(
+        message: priority.toUpperCase(),
+        child: Icon(
+          priorityData[priority]!['icon'] as IconData,
+          color: priorityData[priority]!['color'] as Color,
+          size: 20,
+        ),
+      ),
     );
   }
 
@@ -1102,38 +1705,59 @@ class _ModeratorDashboardState extends State<ModeratorDashboard> {
       'closed': Colors.grey,
     };
 
-    return Chip(
-      label: Text(
-        status.replaceAll('_', ' ').toUpperCase(),
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
+    return Semantics(
+      label: 'Status: ${status.replaceAll('_', ' ').toUpperCase()}',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: statusColors[status] ?? Colors.grey,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          status.replaceAll('_', ' ').toUpperCase(),
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
-      backgroundColor: statusColors[status] ?? Colors.grey,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
     );
   }
 
-  void _viewTicketDetails(BuildContext context, String ticketId,
-      {bool initialFocusResponse = false}) async {
+  void _viewTicketDetails(BuildContext context, String ticketId, {bool initialFocusResponse = false}) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => TicketDetailsScreen(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => TicketDetailsScreen(
           ticketId: ticketId,
           isAgent: true,
           initialFocusResponse: initialFocusResponse,
         ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0);
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+          var slideTween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var fadeTween = Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: curve));
+          return SlideTransition(
+            position: animation.drive(slideTween),
+            child: FadeTransition(
+              opacity: animation.drive(fadeTween),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 400),
       ),
     );
 
     if (result == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Ticket updated!'),
+        SnackBar(
+          content: Text('Ticket updated!', style: GoogleFonts.poppins()),
           duration: Duration(seconds: 2),
+          backgroundColor: Theme.of(context).colorScheme.primary,
         ),
       );
       _loadInitialReassignedTickets();

@@ -3,18 +3,19 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart';
+import 'edit_profile_screen.dart';
 
-class ProfileHistoryScreen extends StatefulWidget {
-  const ProfileHistoryScreen({Key? key}) : super(key: key);
+class ManageUsersScreen extends StatefulWidget {
+  const ManageUsersScreen({Key? key}) : super(key: key);
 
   @override
-  _ProfileHistoryScreenState createState() => _ProfileHistoryScreenState();
+  _ManageUsersScreenState createState() => _ManageUsersScreenState();
 }
 
-class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with SingleTickerProviderStateMixin {
+class _ManageUsersScreenState extends State<ManageUsersScreen> with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
-  List<Map<String, dynamic>> _initialProfiles = [];
+  List<Map<String, dynamic>> _initialUsers = [];
   bool _isLoading = true;
 
   @override
@@ -35,30 +36,20 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
     setState(() => _isLoading = true);
     try {
       final usersSnapshot = await FirebaseFirestore.instance.collection('users').get();
-      final deniedUsersSnapshot = await FirebaseFirestore.instance.collection('denied_users').get();
-
-      final users = usersSnapshot.docs.map((doc) {
+      _initialUsers = usersSnapshot.docs.map((doc) {
         final data = doc.data();
         data['id'] = doc.id;
         return data;
-      }).toList();
-
-      final deniedUsers = deniedUsersSnapshot.docs.map((doc) {
-        final data = doc.data();
-        data['id'] = doc.id;
-        data['status'] = 'Denied';
-        return data;
-      }).toList();
-
-      _initialProfiles = [...users, ...deniedUsers]..sort((a, b) {
-        final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-        final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-        return bTime.compareTo(aTime); // Sort by createdAt, newest first
-      });
+      }).toList()
+        ..sort((a, b) {
+          final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          return bTime.compareTo(aTime); // Sort by createdAt, newest first
+        });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error loading initial data: $e', style: GoogleFonts.poppins()),
+          content: Text('Error loading users: $e', style: GoogleFonts.poppins()),
           backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
@@ -104,7 +95,7 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Profile Request History',
+                    'Manage Users',
                     style: GoogleFonts.poppins(
                       fontSize: 18,
                       fontWeight: FontWeight.w600,
@@ -113,7 +104,7 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
                   ),
                   const SizedBox(height: 24),
                   StreamBuilder<List<Map<String, dynamic>>>(
-                    stream: _combineUserStreams(),
+                    stream: _userStream(),
                     builder: (context, snapshot) {
                       if (snapshot.hasError) {
                         return Center(
@@ -127,7 +118,7 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'Error loading profile history: ${snapshot.error}',
+                                'Error loading users: ${snapshot.error}',
                                 style: GoogleFonts.poppins(
                                   fontSize: 16,
                                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -158,20 +149,20 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
                         );
                       }
 
-                      final profiles = snapshot.data ?? _initialProfiles;
-                      if (profiles.isEmpty) {
+                      final users = snapshot.data ?? _initialUsers;
+                      if (users.isEmpty) {
                         return Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(
-                                Icons.history,
+                                Icons.people,
                                 size: 48,
                                 color: Theme.of(context).colorScheme.onSurfaceVariant,
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'No profile history available.',
+                                'No users available.',
                                 style: GoogleFonts.poppins(
                                   fontSize: 16,
                                   color: Theme.of(context).colorScheme.onSurfaceVariant,
@@ -186,7 +177,7 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
                         child: ListView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),
-                          itemCount: profiles.length,
+                          itemCount: users.length,
                           itemBuilder: (context, index) {
                             return AnimationConfiguration.staggeredList(
                               position: index,
@@ -194,7 +185,7 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
                               child: SlideAnimation(
                                 verticalOffset: 50.0,
                                 child: FadeInAnimation(
-                                  child: _buildProfileCard(profiles[index]),
+                                  child: _buildUserCard(users[index]),
                                 ),
                               ),
                             );
@@ -226,34 +217,12 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
     );
   }
 
-  Widget _buildProfileCard(Map<String, dynamic> profile) {
-    final status = profile['status'] ?? 'Pending';
-    final isApproved = profile['isApproved'] ?? false;
-    final displayStatus = status == 'Denied'
-        ? 'Denied'
-        : isApproved
-        ? 'Approved'
-        : 'Pending';
-
-    Color statusColor;
-    switch (displayStatus) {
-      case 'Approved':
-        statusColor = Theme.of(context).colorScheme.primary;
-        break;
-      case 'Denied':
-        statusColor = Theme.of(context).colorScheme.error;
-        break;
-      case 'Pending':
-      default:
-        statusColor = Colors.orange;
-        break;
-    }
-
-    final createdAt = (profile['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+  Widget _buildUserCard(Map<String, dynamic> user) {
+    final createdAt = (user['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
     final formattedDate = DateFormat('MMM dd, yyyy • HH:mm').format(createdAt.toLocal());
 
     return Semantics(
-      label: 'Profile card, ${profile['email'] ?? 'No Email'}, Status: $displayStatus',
+      label: 'User card, ${user['email'] ?? 'No Email'}',
       child: Card(
         color: Theme.of(context).colorScheme.surface,
         margin: const EdgeInsets.symmetric(vertical: 8),
@@ -261,117 +230,98 @@ class _ProfileHistoryScreenState extends State<ProfileHistoryScreen> with Single
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
         ),
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    profile['email'] ?? 'No Email',
-                    style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Role: ${profile['role'] ?? 'N/A'}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    'Full Name: ${profile['fullName'] ?? 'N/A'}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  Text(
-                    'Nickname: ${profile['nickName'] ?? 'N/A'}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 14,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                  if (profile['role'] == 'agent' || profile['role'] == 'moderator')
-                    Text(
-                      'Platform: ${profile['platform'] ?? 'N/A'}',
+                  Expanded(
+                    child: Text(
+                      user['email'] ?? 'No Email',
                       style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  Text(
-                    'Created At: $formattedDate',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.edit,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => EditProfileScreen(userId: user['id']),
+                        ),
+                      );
+                    },
+                    tooltip: 'Edit User',
                   ),
                 ],
               ),
-            ),
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    topRight: Radius.circular(16),
-                  ),
-                ),
-                child: Text(
-                  displayStatus,
-                  style: GoogleFonts.poppins(
-                    color: Theme.of(context).colorScheme.onPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+              const SizedBox(height: 8),
+              Text(
+                'Role: ${user['role'] ?? 'N/A'}',
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
-            ),
-          ],
+              Text(
+                'Full Name: ${user['fullName'] ?? 'N/A'}',
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              Text(
+                'Nickname: ${user['nickName'] ?? 'N/A'}',
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (user['role'] == 'agent' || user['role'] == 'moderator')
+                Text(
+                  'Platform: ${user['platform'] ?? 'N/A'}',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              Text(
+                'Created At: $formattedDate',
+                style: GoogleFonts.poppins(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Stream<List<Map<String, dynamic>>> _combineUserStreams() {
-    final usersStream = FirebaseFirestore.instance
-        .collection('users')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) {
-      final data = doc.data();
-      data['id'] = doc.id;
-      return data;
-    }).toList());
-
-    final deniedUsersStream = FirebaseFirestore.instance
-        .collection('denied_users')
-        .snapshots()
-        .map((snapshot) => snapshot.docs.map((doc) {
-      final data = doc.data();
-      data['id'] = doc.id;
-      data['status'] = 'Denied';
-      return data;
-    }).toList());
-
-    return usersStream.asyncMap((users) async {
-      final deniedUsers = await deniedUsersStream.first;
-      return [...users, ...deniedUsers]..sort((a, b) {
-        final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-        final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
-        return bTime.compareTo(aTime); // Sort by createdAt, newest first
-      });
+  Stream<List<Map<String, dynamic>>> _userStream() {
+    return FirebaseFirestore.instance.collection('users').snapshots().map((snapshot) {
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        data['id'] = doc.id;
+        return data;
+      }).toList()
+        ..sort((a, b) {
+          final aTime = (a['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          final bTime = (b['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now();
+          return bTime.compareTo(aTime); // Sort by createdAt, newest first
+        });
     });
   }
 }

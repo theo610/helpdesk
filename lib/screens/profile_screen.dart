@@ -8,6 +8,8 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geoflutterfire3/geoflutterfire3.dart';
 import 'dart:async';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 
 class ProfileScreen extends StatefulWidget {
   @override
@@ -65,7 +67,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           print('Warning: User ${user?.uid} has no role but has platform ${data['platform']}. Defaulting to agent. Please fix the data.');
         }
 
-        // Check and fix geohash if location exists but geohash is missing
         final location = data['location'] as Map<String, dynamic>?;
         if (location != null &&
             location['geopoint'] != null &&
@@ -241,145 +242,308 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile'),
-        actions: [
-          IconButton(
-            icon: Icon(_isEditing ? Icons.save : Icons.edit),
-            onPressed: () => _toggleEditMode(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.background,
+              Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.8),
+            ],
           ),
-        ],
-      ),
-      body: StreamBuilder<DocumentSnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('users')
-            .doc(user?.uid)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
+        ),
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(),
+              Expanded(
+                child: StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user?.uid)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-          if (snapshot.hasError) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text('Error loading profile: ${snapshot.error}'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: _signOut,
-                    child: const Text('Sign Out and Try Again'),
-                  ),
-                ],
-              ),
-            );
-          }
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text('Error loading profile: ${snapshot.error}'),
+                            const SizedBox(height: 16),
+                            _buildActionButton(
+                              context,
+                              'Sign Out and Try Again',
+                              Icons.logout,
+                              Theme.of(context).colorScheme.error,
+                              _signOut,
+                            ),
+                          ],
+                        ),
+                      );
+                    }
 
-          if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text('No profile data found.'));
-          }
+                    if (!snapshot.hasData || !snapshot.data!.exists) {
+                      return const Center(child: Text('No profile data found.'));
+                    }
 
-          final userData = snapshot.data!.data() as Map<String, dynamic>;
-          if (!_isEditing) {
-            _fullNameController.text = userData['fullName'] ?? '';
-            _phoneController.text = userData['phoneNumber'] ?? '';
-            _addressController.text = userData['address'] ?? '';
-            _platformController.text = userData['platform'] ?? userData['department'] ?? '';
-            _selectedCountry = userData['country'] ?? 'Tunisia';
-            _selectedGender = userData['gender'] ?? 'Male';
-            _shareLocation = userData['shareLocation'] ?? true;
-          }
+                    final userData = snapshot.data!.data() as Map<String, dynamic>;
+                    if (!_isEditing) {
+                      _fullNameController.text = userData['fullName'] ?? '';
+                      _phoneController.text = userData['phoneNumber'] ?? '';
+                      _addressController.text = userData['address'] ?? '';
+                      _platformController.text = userData['platform'] ?? userData['department'] ?? '';
+                      _selectedCountry = userData['country'] ?? 'Tunisia';
+                      _selectedGender = userData['gender'] ?? 'Male';
+                      _shareLocation = userData['shareLocation'] ?? true;
+                    }
 
-          return _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                _buildProfilePicture(userData),
-                const SizedBox(height: 16),
-                Text(
-                  userData['fullName'] ?? 'User Name',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (_userRole != null) ...[
-                  const SizedBox(height: 4),
-                  Chip(
-                    label: Text(
-                      _userRole!.toUpperCase(),
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                    backgroundColor: _getRoleColor(_userRole!),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                _buildEditableField('Full Name', _fullNameController, Icons.person),
-                _buildEditableField('Phone Number', _phoneController, Icons.phone),
-                _buildEditableField('Address', _addressController, Icons.location_on),
-                _buildDropdownField(
-                  'Country',
-                  _selectedCountry!,
-                  _countries,
-                  Icons.flag,
-                      (value) => setState(() => _selectedCountry = value),
-                ),
-                _buildDropdownField(
-                  'Gender',
-                  _selectedGender!,
-                  _genders,
-                  Icons.people,
-                      (value) => setState(() => _selectedGender = value),
-                ),
-                if (_userRole == 'agent' || _userRole == 'moderator')
-                  _buildEditableField('Platform', _platformController, Icons.build),
-                SwitchListTile(
-                  title: const Text('Share Location'),
-                  subtitle: const Text('Allow others to see your location on the map'),
-                  value: _shareLocation ?? true,
-                  onChanged: (value) {
-                    _updateShareLocation(value);
+                    return _isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : AnimationLimiter(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            AnimationConfiguration.staggeredList(
+                              position: 0,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildProfileHeader(userData),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                            AnimationConfiguration.staggeredList(
+                              position: 1,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildEditableField('Full Name', _fullNameController, Icons.person),
+                                ),
+                              ),
+                            ),
+                            AnimationConfiguration.staggeredList(
+                              position: 2,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildEditableField('Phone Number', _phoneController, Icons.phone),
+                                ),
+                              ),
+                            ),
+                            AnimationConfiguration.staggeredList(
+                              position: 3,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildEditableField('Address', _addressController, Icons.location_on),
+                                ),
+                              ),
+                            ),
+                            AnimationConfiguration.staggeredList(
+                              position: 4,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildDropdownField(
+                                    'Country',
+                                    _selectedCountry!,
+                                    _countries,
+                                    Icons.flag,
+                                        (value) => setState(() => _selectedCountry = value),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            AnimationConfiguration.staggeredList(
+                              position: 5,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildDropdownField(
+                                    'Gender',
+                                    _selectedGender!,
+                                    _genders,
+                                    Icons.people,
+                                        (value) => setState(() => _selectedGender = value),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            if (_userRole == 'agent' || _userRole == 'moderator')
+                              AnimationConfiguration.staggeredList(
+                                position: 6,
+                                duration: const Duration(milliseconds: 375),
+                                child: SlideAnimation(
+                                  verticalOffset: 50.0,
+                                  child: FadeInAnimation(
+                                    child: _buildEditableField('Platform', _platformController, Icons.build),
+                                  ),
+                                ),
+                              ),
+                            AnimationConfiguration.staggeredList(
+                              position: _userRole == 'agent' || _userRole == 'moderator' ? 7 : 6,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildShareLocationToggle(),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 32),
+                            AnimationConfiguration.staggeredList(
+                              position: _userRole == 'agent' || _userRole == 'moderator' ? 8 : 7,
+                              duration: const Duration(milliseconds: 375),
+                              child: SlideAnimation(
+                                verticalOffset: 50.0,
+                                child: FadeInAnimation(
+                                  child: _buildActionButtons(context),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
                   },
-                  secondary: const Icon(Icons.location_on, color: Colors.blue),
                 ),
-                const SizedBox(height: 24),
-                _buildActionButtons(context),
-              ],
-            ),
-          );
-        },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  Widget _buildProfilePicture(Map<String, dynamic> userData) {
-    return Stack(
-      alignment: Alignment.bottomRight,
-      children: [
-        CircleAvatar(
-          radius: 60,
-          backgroundColor: Colors.grey[200],
-          backgroundImage: _getProfileImage(userData),
-          child: _profileImage == null && userData['profileImageUrl'] == null
-              ? const Icon(Icons.person, size: 60, color: Colors.white)
-              : null,
-        ),
-        if (_isEditing)
-          Container(
-            decoration: const BoxDecoration(
-              color: Colors.blue,
-              shape: BoxShape.circle,
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.camera_alt, color: Colors.white),
-              onPressed: _pickProfileImage,
+  Widget _buildAppBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'My Profile',
+            style: GoogleFonts.poppins(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onBackground,
             ),
           ),
-      ],
+          IconButton(
+            icon: Icon(
+              _isEditing ? Icons.save : Icons.edit,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            onPressed: _toggleEditMode,
+            tooltip: _isEditing ? 'Save Profile' : 'Edit Profile',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileHeader(Map<String, dynamic> userData) {
+    return Container(
+      padding: const EdgeInsets.all(16.0),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.1),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Stack(
+            alignment: Alignment.bottomRight,
+            children: [
+              CircleAvatar(
+                radius: 40,
+                backgroundColor: Theme.of(context).colorScheme.surfaceVariant,
+                backgroundImage: _getProfileImage(userData),
+                child: _profileImage == null && userData['profileImageUrl'] == null
+                    ? Text(
+                  (userData['fullName'] ?? 'U')[0],
+                  style: GoogleFonts.poppins(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                )
+                    : null,
+              ),
+              if (_isEditing)
+                GestureDetector(
+                  onTap: _pickProfileImage,
+                  child: Container(
+                    padding: const EdgeInsets.all(8.0),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.camera_alt,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      size: 20,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  userData['fullName'] ?? 'User Name',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                if (_userRole != null) ...[
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                    decoration: BoxDecoration(
+                      color: _getRoleColor(_userRole!),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      _userRole!.toUpperCase(),
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -394,14 +558,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildEditableField(String label, TextEditingController controller, IconData icon) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: ListTile(
-        leading: Icon(icon, color: Colors.blue),
-        title: _isEditing
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: _isEditing
             ? TextFormField(
           controller: controller,
           decoration: InputDecoration(
             labelText: label,
-            border: const OutlineInputBorder(),
+            prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.surface,
+            contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
           ),
           validator: (value) {
             if (label == 'Platform' &&
@@ -411,46 +592,136 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }
             return null;
           },
+          style: GoogleFonts.poppins(
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         )
-            : Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: _isEditing
-            ? null
-            : Text(
-          controller.text.isEmpty ? 'Not provided' : controller.text,
-          style: const TextStyle(fontSize: 16),
+            : ListTile(
+          leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
+          title: Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          subtitle: Text(
+            controller.text.isEmpty ? 'Not provided' : controller.text,
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
         ),
       ),
     );
   }
 
   Widget _buildDropdownField(
-      String label,
-      String value,
-      List<String> items,
-      IconData icon,
-      ValueChanged<String?> onChanged,
-      ) {
+      String label, String value, List<String> items, IconData icon, ValueChanged<String?> onChanged) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: ListTile(
-        leading: Icon(icon, color: Colors.blue),
-        title: _isEditing
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: _isEditing
             ? DropdownButtonFormField<String>(
           value: value,
           decoration: InputDecoration(
             labelText: label,
-            border: const OutlineInputBorder(),
+            prefixIcon: Icon(icon, color: Theme.of(context).colorScheme.primary),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.surface,
+            contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
           ),
           items: items.map((String value) {
             return DropdownMenuItem<String>(
               value: value,
-              child: Text(value),
+              child: Text(
+                value,
+                style: GoogleFonts.poppins(
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
             );
           }).toList(),
           onChanged: onChanged,
+          style: GoogleFonts.poppins(),
         )
-            : Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: _isEditing ? null : Text(value, style: const TextStyle(fontSize: 16)),
+            : ListTile(
+          leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
+          title: Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          subtitle: Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShareLocationToggle() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: SwitchListTile(
+        title: Text(
+          'Share Location',
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
+        ),
+        subtitle: Text(
+          'Allow others to see your location on the map',
+          style: GoogleFonts.poppins(
+            fontSize: 14,
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+        value: _shareLocation ?? true,
+        onChanged: (value) {
+          _updateShareLocation(value);
+        },
+        activeColor: Theme.of(context).colorScheme.primary,
+        secondary: Icon(
+          Icons.location_on,
+          color: Theme.of(context).colorScheme.primary,
+        ),
       ),
     );
   }
@@ -458,45 +729,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Widget _buildActionButtons(BuildContext context) {
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.lock),
-            label: const Text('CHANGE PASSWORD'),
-            onPressed: _showChangePasswordDialog,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-          ),
+        _buildActionButton(
+          context,
+          'Change Password',
+          Icons.lock,
+          Theme.of(context).colorScheme.primary,
+          _showChangePasswordDialog,
         ),
         const SizedBox(height: 16),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            icon: const Icon(Icons.logout),
-            label: const Text('SIGN OUT'),
-            onPressed: _signOut,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-            ),
-          ),
+        _buildActionButton(
+          context,
+          'Sign Out',
+          Icons.logout,
+          Theme.of(context).colorScheme.error,
+          _signOut,
         ),
       ],
+    );
+  }
+
+  Widget _buildActionButton(
+      BuildContext context, String label, IconData icon, Color color, VoidCallback onPressed) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      width: double.infinity,
+      child: ElevatedButton.icon(
+        icon: Icon(icon, color: Theme.of(context).colorScheme.onPrimary),
+        label: Text(
+          label,
+          style: GoogleFonts.poppins(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.onPrimary,
+          ),
+        ),
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          padding: const EdgeInsets.symmetric(vertical: 16.0),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          elevation: 2,
+        ),
+      ),
     );
   }
 
   Color _getRoleColor(String role) {
     switch (role) {
       case 'admin':
-        return Colors.red;
+        return Colors.redAccent;
       case 'moderator':
-        return Colors.orange;
+        return Colors.orangeAccent;
       case 'agent':
-        return Colors.blue;
+        return Colors.blueAccent;
       default:
-        return Colors.green;
+        return Colors.greenAccent;
     }
   }
 
@@ -598,33 +887,56 @@ class _ProfileScreenState extends State<ProfileScreen> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Change Password'),
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Change Password',
+            style: GoogleFonts.poppins(
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextFormField(
                 controller: newPasswordController,
                 obscureText: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'New Password',
-                  border: OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).colorScheme.surfaceVariant,
                 ),
+                style: GoogleFonts.poppins(),
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: confirmPasswordController,
                 obscureText: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Confirm New Password',
-                  border: OutlineInputBorder(),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).colorScheme.surfaceVariant,
                 ),
+                style: GoogleFonts.poppins(),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('CANCEL'),
+              child: Text(
+                'Cancel',
+                style: GoogleFonts.poppins(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -667,7 +979,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   );
                 }
               },
-              child: const Text('SAVE'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                'Save',
+                style: GoogleFonts.poppins(
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
+              ),
             ),
           ],
         );

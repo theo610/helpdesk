@@ -6,6 +6,8 @@ import 'package:location/location.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as latlong;
 import 'package:geoflutterfire3/geoflutterfire3.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../repositories/chat_repository.dart';
 import 'chat_screen.dart';
 
@@ -80,7 +82,13 @@ class _MapScreenState extends State<MapScreen> {
       setState(() => _locationDenied = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Location error: ${e.toString()}')),
+          SnackBar(
+            content: Text(
+              'Location error: ${e.toString()}',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     }
@@ -110,7 +118,13 @@ class _MapScreenState extends State<MapScreen> {
         print('Failed to update location: $e');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to update location: ${e.toString()}')),
+            SnackBar(
+              content: Text(
+                'Failed to update location: ${e.toString()}',
+                style: GoogleFonts.poppins(),
+              ),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
           );
         }
       }
@@ -146,8 +160,6 @@ class _MapScreenState extends State<MapScreen> {
         .where('isActive', isEqualTo: true)
         .where('location', isNotEqualTo: null);
 
-    print('Starting stream with center: ${center.data}, radius: $radiusKm km');
-    print('Query filters: shareLocation=true, isActive=true, location!=null');
     _usersStream = _geo
         .collection(collectionRef: query)
         .within(
@@ -157,19 +169,19 @@ class _MapScreenState extends State<MapScreen> {
       strictMode: false,
     )
         .listen((List<DocumentSnapshot> documents) {
-      print('Fetched documents: ${documents.map((doc) => doc.id).toList()}');
-      documents.forEach((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        print('Document ${doc.id} data: $data');
-        print('Document ${doc.id} - isActive: ${data['isActive']}, shareLocation: ${data['shareLocation']}');
-      });
       _updateMarkers(documents);
     }, onError: (e) {
       print('Firestore error: $e');
       setState(() => _firestoreDenied = true);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Data access error: ${e.toString()}')),
+          SnackBar(
+            content: Text(
+              'Data access error: ${e.toString()}',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     });
@@ -182,11 +194,7 @@ class _MapScreenState extends State<MapScreen> {
       final data = doc.data() as Map<String, dynamic>? ?? {};
       final isActive = data['isActive'] as bool? ?? false;
       final shareLocation = data['shareLocation'] as bool? ?? false;
-      final meetsCriteria = doc.id != currentUserId && isActive && shareLocation;
-      if (!meetsCriteria) {
-        print('Excluding document ${doc.id} - isActive: $isActive, shareLocation: $shareLocation');
-      }
-      return meetsCriteria;
+      return doc.id != currentUserId && isActive && shareLocation;
     })
         .map(_createUserMarker)
         .whereType<Marker>()
@@ -219,12 +227,11 @@ class _MapScreenState extends State<MapScreen> {
 
       final userName = data['nickName'] ?? data['fullName'] ?? 'User';
       final userId = doc.id;
+      final isActive = data['isActive'] as bool? ?? false;
       final lastActive = data['lastActive'] as Timestamp?;
       final lastActiveText = lastActive != null
           ? 'Active ${_timeAgo(lastActive.toDate())}'
           : 'Active now';
-
-      print('Creating marker for $userId - userName: "$userName", lastActiveText: "$lastActiveText"');
 
       return Marker(
         point: latlong.LatLng(lat, lng),
@@ -235,16 +242,54 @@ class _MapScreenState extends State<MapScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
-                Icons.location_pin,
-                color: Colors.blue,
-                size: 36,
+              Stack(
+                children: [
+                  Icon(
+                    Icons.location_pin,
+                    color: Theme.of(context).colorScheme.primary,
+                    size: 36,
+                  ),
+                  if (isActive)
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: Colors.green,
+                          shape: BoxShape.circle,
+                          border: Border.fromBorderSide(
+                            BorderSide(
+                              color: Theme.of(context).colorScheme.surface,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            Icons.check,
+                            color: Theme.of(context).colorScheme.onPrimary,
+                            size: 8,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                margin: const EdgeInsets.only(top: 4),
                 decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.9),
-                  borderRadius: BorderRadius.circular(4),
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
                 child: Column(
                   children: [
@@ -252,10 +297,10 @@ class _MapScreenState extends State<MapScreen> {
                       constraints: const BoxConstraints(maxWidth: 90),
                       child: Text(
                         userName,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurface,
+                          fontWeight: FontWeight.w600,
                         ),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
@@ -266,9 +311,9 @@ class _MapScreenState extends State<MapScreen> {
                       constraints: const BoxConstraints(maxWidth: 90),
                       child: Text(
                         lastActiveText,
-                        style: const TextStyle(
-                          fontSize: 9,
-                          color: Colors.grey,
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
@@ -305,7 +350,13 @@ class _MapScreenState extends State<MapScreen> {
       if (currentUser == null) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You must be logged in to start a chat')),
+          SnackBar(
+            content: Text(
+              'You must be logged in to start a chat',
+              style: GoogleFonts.poppins(),
+            ),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
         return;
       }
@@ -334,7 +385,9 @@ class _MapScreenState extends State<MapScreen> {
         SnackBar(
           content: Text(
             'Failed to start chat with $userName. Please try again later.',
+            style: GoogleFonts.poppins(),
           ),
+          backgroundColor: Theme.of(context).colorScheme.error,
         ),
       );
     }
@@ -349,111 +402,228 @@ class _MapScreenState extends State<MapScreen> {
 
   Widget _buildPermissionDeniedView() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            _firestoreDenied ? Icons.cloud_off : Icons.location_off,
-            size: 48,
-            color: Colors.red,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _firestoreDenied
-                ? 'Firestore permissions denied'
-                : 'Location permission required',
-            style: const TextStyle(fontSize: 18),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            'Please check your settings',
-            style: TextStyle(fontSize: 14),
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: _initializeLocationAndFetchUsers,
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      child: AnimationLimiter(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: AnimationConfiguration.toStaggeredList(
+            duration: const Duration(milliseconds: 375),
+            childAnimationBuilder: (widget) => SlideAnimation(
+              verticalOffset: 50.0,
+              child: FadeInAnimation(
+                child: widget,
+              ),
             ),
-            child: const Text('Retry'),
+            children: [
+              Icon(
+                _firestoreDenied ? Icons.cloud_off : Icons.location_off,
+                size: 48,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _firestoreDenied
+                    ? 'Firestore permissions denied'
+                    : 'Location permission required',
+                style: GoogleFonts.poppins(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Please check your settings',
+                style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _initializeLocationAndFetchUsers,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  backgroundColor: Theme.of(context).colorScheme.primary,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+                child: Text(
+                  'Retry',
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildMapContent() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: _currentPosition!,
-        initialZoom: 12,
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.yourapp',
+    return AnimationLimiter(
+      child: FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          initialCenter: _currentPosition!,
+          initialZoom: 12,
         ),
-        MarkerLayer(
-          markers: [
-            ..._markers,
-            if (_currentPosition != null)
-              Marker(
-                point: _currentPosition!,
-                width: 80,
-                height: 60,
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.location_pin,
-                      color: Colors.red,
-                      size: 36,
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'You',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.example.yourapp',
+          ),
+          MarkerLayer(
+            markers: [
+              ..._markers.map(
+                    (marker) => Marker(
+                  point: marker.point,
+                  width: marker.width,
+                  height: marker.height,
+                  child: AnimationConfiguration.staggeredList(
+                    position: _markers.indexOf(marker),
+                    duration: const Duration(milliseconds: 375),
+                    child: SlideAnimation(
+                      verticalOffset: 50.0,
+                      child: FadeInAnimation(
+                        child: marker.child!,
                       ),
                     ),
-                  ],
+                  ),
                 ),
               ),
-          ],
-        ),
-      ],
+              if (_currentPosition != null)
+                Marker(
+                  point: _currentPosition!,
+                  width: 80,
+                  height: 60,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.location_pin,
+                        color: Theme.of(context).colorScheme.error,
+                        size: 36,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'You',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Nearby Users'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _initializeLocationAndFetchUsers,
-            tooltip: 'Refresh',
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Theme.of(context).colorScheme.background,
+              Theme.of(context).colorScheme.surfaceVariant.withOpacity(0.8),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  _buildHeader(),
+                  Expanded(
+                    child: _isLoading
+                        ? Center(
+                      child: CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    )
+                        : (_locationDenied || _firestoreDenied)
+                        ? _buildPermissionDeniedView()
+                        : _currentPosition == null
+                        ? Center(
+                      child: Text(
+                        'Location unattainable',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          color:
+                          Theme.of(context).colorScheme.onSurface,
+                        ),
+                      ),
+                    )
+                        : _buildMapContent(),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+      floatingActionButton: Semantics(
+        label: 'Refresh map',
+        child: FloatingActionButton(
+          onPressed: _initializeLocationAndFetchUsers,
+          child: Icon(
+            Icons.refresh,
+            color: Theme.of(context).colorScheme.onPrimary,
+          ),
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          elevation: 2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          tooltip: 'Refresh Map',
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            'Nearby Users',
+            style: GoogleFonts.poppins(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.onBackground,
+            ),
           ),
           if (_currentPosition != null)
             IconButton(
-              icon: const Icon(Icons.my_location),
+              icon: Icon(
+                Icons.my_location,
+                color: Theme.of(context).colorScheme.primary,
+              ),
               onPressed: () => _mapController.move(_currentPosition!, 12),
-              tooltip: 'My Location',
+              tooltip: 'Center on My Location',
             ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : (_locationDenied || _firestoreDenied)
-          ? _buildPermissionDeniedView()
-          : _currentPosition == null
-          ? const Center(child: Text('Location unattainable'))
-          : _buildMapContent(),
     );
   }
 }

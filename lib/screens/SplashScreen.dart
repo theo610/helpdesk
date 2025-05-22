@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'loginScreen.dart';
 
 class SplashScreen extends StatefulWidget {
-  SplashScreen({Key? key}) : super(key: key);
+  const SplashScreen({Key? key}) : super(key: key);
 
   @override
   _SplashScreenState createState() => _SplashScreenState();
@@ -21,7 +23,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
     // Fade Animation (for logo)
     _fadeController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
     _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
@@ -30,16 +32,16 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
 
     // Scale Animation (for logo)
     _scaleController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
-    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _scaleController, curve: Curves.elasticOut),
+    _scaleAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _scaleController, curve: Curves.easeOut),
     );
 
     // Slide Animation (for tagline)
     _slideController = AnimationController(
-      duration: const Duration(seconds: 1),
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
     _slideAnimation = Tween<Offset>(
@@ -49,7 +51,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       CurvedAnimation(parent: _slideController, curve: Curves.easeOut),
     );
 
-    // Start animations sequentially
+    // Start animations
     _startAnimations();
   }
 
@@ -58,17 +60,45 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     _fadeController.forward();
     _scaleController.forward();
 
-    // Wait for 1 second, then start the slide animation
-    await Future.delayed(const Duration(seconds: 1));
-    _slideController.forward();
+    // Wait for 800ms, then start the slide animation
+    await Future.delayed(const Duration(milliseconds: 800));
+    if (mounted) {
+      _slideController.forward();
+    }
 
-    // Wait for all animations to complete, then navigate to the login screen
-    await Future.delayed(const Duration(seconds: 3));
-    _navigateToLoginScreen();
+    // Wait for all animations to complete, then navigate
+    await Future.delayed(const Duration(milliseconds: 1700));
+    if (mounted) {
+      _navigateToLoginScreen();
+    }
   }
 
   void _navigateToLoginScreen() {
-    Navigator.pushReplacementNamed(context, '/login');
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const LoginScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          const begin = Offset(1.0, 0.0); // Slide from right
+          const end = Offset.zero;
+          const curve = Curves.easeInOut;
+          var slideTween = Tween(begin: begin, end: end).chain(CurveTween(curve: curve));
+          var fadeTween = Tween<double>(begin: 0.0, end: 1.0).chain(CurveTween(curve: curve));
+          return Stack(
+            children: [
+              SlideTransition(
+                position: animation.drive(slideTween),
+                child: FadeTransition(
+                  opacity: animation.drive(fadeTween),
+                  child: child,
+                ),
+              ),
+            ],
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+    );
   }
 
   @override
@@ -82,35 +112,39 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.blueAccent, // Customize background color
+      backgroundColor: Theme.of(context).colorScheme.background,
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Main Logo (Fade + Scale) with Rounded Corners
-            FadeTransition(
-              opacity: _fadeAnimation,
-              child: ScaleTransition(
-                scale: _scaleAnimation,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20), // Round the corners
+            // Main Logo (Fade + Scale)
+            Semantics(
+              label: 'App Logo',
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: ScaleTransition(
+                  scale: _scaleAnimation,
                   child: Image.asset(
                     'assets/images/logo.png',
-                    width: 150,
-                    height: 150,
+                    width: 300,
+                    height: 300,
                   ),
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
             // Tagline (Slide)
-            SlideTransition(
-              position: _slideAnimation,
-              child: const Text(
-                'HelpDesk',
-                style: TextStyle(
-                  fontSize: 20,
-                  color: Colors.white70,
+            Semantics(
+              label: 'Tagline',
+              child: SlideTransition(
+                position: _slideAnimation,
+                child: Text(
+                  'HelpDesk',
+                  style: GoogleFonts.poppins(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w500,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
             ),

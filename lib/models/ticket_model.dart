@@ -7,13 +7,15 @@ class Ticket {
   final String status;
   final String priority;
   final String? platform;
-  final String? platformName; // Add platformName
+  final String? platformName;
   final String? equipment;
-  final String? equipmentName; // Add equipmentName
+  final String? equipmentName;
   final String createdBy;
   final String createdByName;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final DateTime? firstResponseAt; // New field for first response timestamp
+  final DateTime? resolvedAt; // New field for resolution timestamp
   final String? assignedTo;
   final bool reassigned;
 
@@ -31,6 +33,8 @@ class Ticket {
     required this.createdByName,
     required this.createdAt,
     required this.updatedAt,
+    this.firstResponseAt,
+    this.resolvedAt,
     this.assignedTo,
     this.reassigned = false,
   });
@@ -44,13 +48,15 @@ class Ticket {
       status: data['status'] ?? 'open',
       priority: data['priority'] ?? 'low',
       platform: data['platform'],
-      platformName: data['platformName'], // Parse platformName
+      platformName: data['platformName'],
       equipment: data['equipment'],
-      equipmentName: data['equipmentName'], // Parse equipmentName
+      equipmentName: data['equipmentName'],
       createdBy: data['createdBy'] ?? '',
       createdByName: data['createdByName'] ?? 'Unknown',
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      firstResponseAt: (data['firstResponseAt'] as Timestamp?)?.toDate(), // Parse firstResponseAt
+      resolvedAt: (data['resolvedAt'] as Timestamp?)?.toDate(), // Parse resolvedAt
       assignedTo: data['assignedTo'],
       reassigned: data['reassigned'] ?? false,
     );
@@ -63,19 +69,31 @@ class Ticket {
       'status': status,
       'priority': priority,
       'platform': platform,
-      'platformName': platformName ?? platform, // Use platform if platformName is null
+      'platformName': platformName ?? platform,
       'createdBy': createdBy,
       'createdByName': createdByName,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'firstResponseAt': firstResponseAt != null ? Timestamp.fromDate(firstResponseAt!) : null, // Include firstResponseAt
+      'resolvedAt': resolvedAt != null ? Timestamp.fromDate(resolvedAt!) : null, // Include resolvedAt
       'assignedTo': assignedTo,
       'reassigned': reassigned,
     };
-    // Only include equipment and equipmentName if equipment is not null
     if (equipment != null) {
       data['equipment'] = equipment;
-      data['equipmentName'] = equipmentName ?? equipment; // Use equipment if equipmentName is null
+      data['equipmentName'] = equipmentName ?? equipment;
     }
     return data;
+  }
+
+  // Helper methods to calculate durations
+  double getTimeToFirstResponse() {
+    if (createdAt == null || firstResponseAt == null) return 0.0;
+    return firstResponseAt!.difference(createdAt).inMinutes.toDouble();
+  }
+
+  double getTimeToResolution() {
+    if (firstResponseAt == null || resolvedAt == null) return 0.0;
+    return resolvedAt!.difference(firstResponseAt!).inMinutes.toDouble();
   }
 }
