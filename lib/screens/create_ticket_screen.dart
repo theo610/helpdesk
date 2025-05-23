@@ -4,6 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:location/location.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geoflutterfire3/geoflutterfire3.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'dart:io';
 import '../models/ticket_model.dart';
 
 class CreateTicketScreen extends StatefulWidget {
@@ -31,6 +34,8 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
   final List<String> _priorities = ['low', 'medium', 'high', 'critical'];
   List<Map<String, dynamic>> _nearbyAgents = [];
   final double _proximityRadiusMiles = 15.0;
+  final List<XFile> _selectedImages = [];
+  final List<String> _imageUrls = [];
 
   final Location _locationService = Location();
   final GeoFlutterFire _geo = GeoFlutterFire();
@@ -235,6 +240,69 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
         ),
       );
     }
+  }
+
+  Future<void> _pickImages() async {
+    if (_selectedImages.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Maximum 5 images allowed', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 85,
+      );
+
+      if (image != null) {
+        setState(() {
+          _selectedImages.add(image);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to pick image: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
+  Future<List<String>> _uploadImages(String ticketId) async {
+    final List<String> urls = [];
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return urls;
+
+    try {
+      for (var image in _selectedImages) {
+        final ref = FirebaseStorage.instance
+            .ref()
+            .child('tickets')
+            .child(ticketId)
+            .child('${DateTime.now().millisecondsSinceEpoch}_${image.name}');
+
+        final uploadTask = await ref.putFile(File(image.path));
+        final downloadUrl = await uploadTask.ref.getDownloadURL();
+        urls.add(downloadUrl);
+      }
+    } catch (e) {
+      print('Image upload error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to upload images: $e', style: GoogleFonts.poppins()),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+    return urls;
   }
 
   @override
@@ -901,6 +969,186 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
                             ),
                           ),
                         ],
+                        const SizedBox(height: 16),
+                        // Images Card
+                        SlideTransition(
+                          position: _slideAnimation,
+                          child: FadeTransition(
+                            opacity: _fadeAnimation,
+                            child: Card(
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              color: Theme.of(context).colorScheme.surface,
+                              child: Padding(
+                                padding: const EdgeInsets.all(16.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Images',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                        color: Theme.of(context).colorScheme.onSurface,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Optional',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w400,
+                                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Semantics(
+                                      label: 'Add image from camera button',
+                                      child: ElevatedButton.icon(
+                                        onPressed: _pickImages,
+                                        icon: Icon(
+                                          Icons.camera_alt,
+                                          color: Theme.of(context).colorScheme.onPrimary,
+                                        ),
+                                        label: Text(
+                                          'Add Image from Camera',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w500,
+                                            color: Theme.of(context).colorScheme.onPrimary,
+                                          ),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Theme.of(context).colorScheme.primary,
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          minimumSize: const Size(double.infinity, 48), // Full width button
+                                        ),
+                                      ),
+                                    ),
+                                    if (_selectedImages.isNotEmpty || (widget.ticket?.imageUrls?.isNotEmpty ?? false)) ...[
+                                      const SizedBox(height: 16),
+                                      Text(
+                                        'Selected Images',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: Theme.of(context).colorScheme.onSurface,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      ListView(
+                                        shrinkWrap: true,
+                                        physics: const NeverScrollableScrollPhysics(),
+                                        children: [
+                                          // Existing ticket images (for editing)
+                                          if (widget.ticket?.imageUrls != null)
+                                            ...widget.ticket!.imageUrls!.asMap().entries.map((entry) {
+                                              final index = entry.key;
+                                              final url = entry.value;
+                                              return Padding(
+                                                padding: const EdgeInsets.only(bottom: 8.0),
+                                                child: Stack(
+                                                  children: [
+                                                    ClipRRect(
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      child: Image.network(
+                                                        url,
+                                                        width: double.infinity,
+                                                        height: 200,
+                                                        fit: BoxFit.cover,
+                                                        errorBuilder: (context, error, stackTrace) => Container(
+                                                          width: double.infinity,
+                                                          height: 200,
+                                                          color: Theme.of(context).colorScheme.errorContainer,
+                                                          child: Icon(
+                                                            Icons.error,
+                                                            color: Theme.of(context).colorScheme.onErrorContainer,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    if (widget.ticket != null)
+                                                      Positioned(
+                                                        top: 4,
+                                                        right: 4,
+                                                        child: GestureDetector(
+                                                          onTap: () {
+                                                            setState(() {
+                                                              widget.ticket!.imageUrls!.removeAt(index);
+                                                            });
+                                                          },
+                                                          child: Container(
+                                                            decoration: BoxDecoration(
+                                                              color: Theme.of(context).colorScheme.error,
+                                                              shape: BoxShape.circle,
+                                                            ),
+                                                            child: const Icon(
+                                                              Icons.close,
+                                                              size: 20,
+                                                              color: Colors.white,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              );
+                                            }),
+                                          // Newly selected images
+                                          ..._selectedImages.asMap().entries.map((entry) {
+                                            final index = entry.key;
+                                            final image = entry.value;
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 8.0),
+                                              child: Stack(
+                                                children: [
+                                                  ClipRRect(
+                                                    borderRadius: BorderRadius.circular(8),
+                                                    child: Image.file(
+                                                      File(image.path),
+                                                      width: double.infinity,
+                                                      height: 200,
+                                                      fit: BoxFit.cover,
+                                                    ),
+                                                  ),
+                                                  Positioned(
+                                                    top: 4,
+                                                    right: 4,
+                                                    child: GestureDetector(
+                                                      onTap: () {
+                                                        setState(() {
+                                                          _selectedImages.removeAt(index);
+                                                        });
+                                                      },
+                                                      child: Container(
+                                                        decoration: BoxDecoration(
+                                                          color: Theme.of(context).colorScheme.error,
+                                                          shape: BoxShape.circle,
+                                                        ),
+                                                        child: const Icon(
+                                                          Icons.close,
+                                                          size: 20,
+                                                          color: Colors.white,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1016,8 +1264,14 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
 
       if (widget.ticket == null) {
         // Create a new ticket
+        final ticketRef = FirebaseFirestore.instance.collection('tickets').doc();
+        final ticketId = ticketRef.id;
+
+        // Upload images and get URLs
+        final imageUrls = await _uploadImages(ticketId);
+
         final newTicket = Ticket(
-          id: '',
+          id: ticketId,
           title: _titleController.text,
           description: _descriptionController.text,
           status: 'open',
@@ -1034,6 +1288,7 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
           resolvedAt: null,
           assignedTo: _selectedAgent,
           reassigned: false,
+          imageUrls: imageUrls.isNotEmpty ? imageUrls : null,
         );
 
         final ticketData = newTicket.toFirestore()
@@ -1042,12 +1297,14 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
 
         print('Creating ticket with data: $ticketData');
 
-        await FirebaseFirestore.instance.collection('tickets').add(ticketData);
+        await ticketRef.set(ticketData);
       } else {
         // Update existing ticket
         final ticketRef = FirebaseFirestore.instance.collection('tickets').doc(widget.ticket!.id);
-        final currentTicketDoc = await ticketRef.get();
-        final currentTicket = Ticket.fromFirestore(currentTicketDoc);
+
+        // Upload new images and combine with existing ones
+        final imageUrls = await _uploadImages(widget.ticket!.id);
+        final updatedImageUrls = [...(widget.ticket!.imageUrls ?? []), ...imageUrls];
 
         final ticketData = <String, dynamic>{
           'description': _descriptionController.text,
@@ -1056,6 +1313,7 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
           'platformName': normalizedPlatform,
           'updatedAt': FieldValue.serverTimestamp(),
           'assignedTo': _selectedAgent,
+          'imageUrls': updatedImageUrls.isNotEmpty ? updatedImageUrls : null,
         };
 
         if (_selectedEquipment != null) {

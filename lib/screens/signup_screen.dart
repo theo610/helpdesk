@@ -16,7 +16,6 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
   double _buttonScale = 1.0;
   bool _isLoading = false;
   late AnimationController _shakeController;
@@ -96,7 +95,6 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
     _shakeController.dispose();
     super.dispose();
   }
@@ -160,30 +158,6 @@ class _SignUpScreenState extends State<SignUpScreen> with SingleTickerProviderSt
                             ),
                           ),
                           const SizedBox(height: 32),
-                          Semantics(
-                            label: 'Name input',
-                            child: TextFormField(
-                              controller: _nameController,
-                              style: GoogleFonts.poppins(color: Colors.white),
-                              decoration: InputDecoration(
-                                labelText: 'Name',
-                                prefixIcon: Icon(Icons.person, color: Theme.of(context).colorScheme.primary),
-                                filled: true,
-                                fillColor: Theme.of(context).colorScheme.surfaceVariant,
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide.none,
-                                ),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your name';
-                                }
-                                return null;
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 16),
                           Semantics(
                             label: 'Email input',
                             child: TextFormField(
