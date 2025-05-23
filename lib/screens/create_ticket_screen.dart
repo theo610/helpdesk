@@ -29,7 +29,7 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
   Map<String, List<String>> _equipmentMap = {};
   Map<String, String> _platformIdMap = {};
   final List<String> _priorities = ['low', 'medium', 'high', 'critical'];
-  List<Map<String, String>> _nearbyAgents = [];
+  List<Map<String, dynamic>> _nearbyAgents = [];
   final double _proximityRadiusMiles = 15.0;
 
   final Location _locationService = Location();
@@ -191,12 +191,39 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
         })
             .map((doc) {
           final data = doc.data() as Map<String, dynamic>;
+          GeoPoint? agentLocation;
+          if (data['location'] != null && data['location'] is Map) {
+            final locationData = data['location'] as Map<String, dynamic>;
+            if (locationData['geopoint'] is List) {
+              final geopoint = locationData['geopoint'] as List;
+              if (geopoint.length >= 2 && geopoint[0] is num && geopoint[1] is num) {
+                agentLocation = GeoPoint(geopoint[0].toDouble(), geopoint[1].toDouble());
+              }
+            }
+          }
+          double distanceKm = 0.0;
+          if (agentLocation != null) {
+            final agentGeoPoint = _geo.point(
+              latitude: agentLocation.latitude,
+              longitude: agentLocation.longitude,
+            );
+            distanceKm = center.distance(
+              lat: agentLocation.latitude,
+              lng: agentLocation.longitude,
+            );
+          }
           return {
             'id': doc.id,
             'name': data['nickName'] as String? ?? data['fullName'] as String? ?? 'Agent ${doc.id}',
+            'distance': distanceKm,
           };
         })
-            .toList();
+            .toList()
+          ..sort((a, b) {
+            final distanceA = a['distance'] as num;
+            final distanceB = b['distance'] as num;
+            return distanceA.compareTo(distanceB);
+          });
         print('Nearby agents: $_nearbyAgents');
       });
     } catch (e) {
@@ -830,15 +857,30 @@ class _CreateTicketScreenState extends State<CreateTicketScreen> with SingleTick
                                                 ..._nearbyAgents.map((agent) {
                                                   return DropdownMenuItem<String>(
                                                     value: agent['id'],
-                                                    child: Text(
-                                                      agent['name']!,
-                                                      style: GoogleFonts.poppins(
-                                                        fontSize: 14,
-                                                        color: Theme.of(context).colorScheme.onSurface,
-                                                        fontWeight: FontWeight.w500,
-                                                      ),
-                                                      overflow: TextOverflow.ellipsis,
-                                                      softWrap: false,
+                                                    child: Row(
+                                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            agent['name']!,
+                                                            style: GoogleFonts.poppins(
+                                                              fontSize: 14,
+                                                              color: Theme.of(context).colorScheme.onSurface,
+                                                              fontWeight: FontWeight.w500,
+                                                            ),
+                                                            overflow: TextOverflow.ellipsis,
+                                                            softWrap: false,
+                                                          ),
+                                                        ),
+                                                        Text(
+                                                          '${agent['distance'].toStringAsFixed(1)} km',
+                                                          style: GoogleFonts.poppins(
+                                                            fontSize: 12,
+                                                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                                                            fontWeight: FontWeight.w400,
+                                                          ),
+                                                        ),
+                                                      ],
                                                     ),
                                                   );
                                                 }),

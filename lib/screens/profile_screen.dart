@@ -19,6 +19,8 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final User? user = FirebaseAuth.instance.currentUser;
   final TextEditingController _fullNameController = TextEditingController();
+  final TextEditingController _nickNameController = TextEditingController(); // Added Nickname
+  final TextEditingController _emailController = TextEditingController(); // Added Email
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _addressController = TextEditingController();
   final TextEditingController _platformController = TextEditingController();
@@ -46,6 +48,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void dispose() {
     _positionStream?.cancel();
     _fullNameController.dispose();
+    _nickNameController.dispose(); // Dispose new controller
+    _emailController.dispose(); // Dispose new controller
     _phoneController.dispose();
     _addressController.dispose();
     _platformController.dispose();
@@ -294,6 +298,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     final userData = snapshot.data!.data() as Map<String, dynamic>;
                     if (!_isEditing) {
                       _fullNameController.text = userData['fullName'] ?? '';
+                      _nickNameController.text = userData['nickName'] ?? ''; // Added Nickname
+                      _emailController.text = userData['email'] ?? ''; // Added Email
                       _phoneController.text = userData['phoneNumber'] ?? '';
                       _addressController.text = userData['address'] ?? '';
                       _platformController.text = userData['platform'] ?? userData['department'] ?? '';
@@ -309,113 +315,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            AnimationConfiguration.staggeredList(
-                              position: 0,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildProfileHeader(userData),
-                                ),
+                          children: AnimationConfiguration.toStaggeredList(
+                            duration: const Duration(milliseconds: 375),
+                            childAnimationBuilder: (widget) => SlideAnimation(
+                              verticalOffset: 50.0,
+                              child: FadeInAnimation(
+                                child: widget,
                               ),
                             ),
-                            const SizedBox(height: 24),
-                            AnimationConfiguration.staggeredList(
-                              position: 1,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildEditableField('Full Name', _fullNameController, Icons.person),
-                                ),
+                            children: [
+                              _buildProfileHeader(userData),
+                              const SizedBox(height: 24),
+                              _buildEditableField('Full Name', _fullNameController, Icons.person),
+                              _buildEditableField('Nickname', _nickNameController, Icons.face), // Added Nickname
+                              _buildNonEditableField('Email', _emailController.text, Icons.email), // Added Email (non-editable)
+                              _buildEditableField('Phone Number', _phoneController, Icons.phone),
+                              _buildDropdownField(
+                                'Country',
+                                _selectedCountry!,
+                                _countries,
+                                Icons.flag,
+                                    (value) => setState(() => _selectedCountry = value),
                               ),
-                            ),
-                            AnimationConfiguration.staggeredList(
-                              position: 2,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildEditableField('Phone Number', _phoneController, Icons.phone),
-                                ),
+                              _buildDropdownField(
+                                'Gender',
+                                _selectedGender!,
+                                _genders,
+                                Icons.transgender,
+                                    (value) => setState(() => _selectedGender = value),
                               ),
-                            ),
-                            AnimationConfiguration.staggeredList(
-                              position: 3,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildEditableField('Address', _addressController, Icons.location_on),
-                                ),
-                              ),
-                            ),
-                            AnimationConfiguration.staggeredList(
-                              position: 4,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildDropdownField(
-                                    'Country',
-                                    _selectedCountry!,
-                                    _countries,
-                                    Icons.flag,
-                                        (value) => setState(() => _selectedCountry = value),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            AnimationConfiguration.staggeredList(
-                              position: 5,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildDropdownField(
-                                    'Gender',
-                                    _selectedGender!,
-                                    _genders,
-                                    Icons.people,
-                                        (value) => setState(() => _selectedGender = value),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            if (_userRole == 'agent' || _userRole == 'moderator')
-                              AnimationConfiguration.staggeredList(
-                                position: 6,
-                                duration: const Duration(milliseconds: 375),
-                                child: SlideAnimation(
-                                  verticalOffset: 50.0,
-                                  child: FadeInAnimation(
-                                    child: _buildEditableField('Platform', _platformController, Icons.build),
-                                  ),
-                                ),
-                              ),
-                            AnimationConfiguration.staggeredList(
-                              position: _userRole == 'agent' || _userRole == 'moderator' ? 7 : 6,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildShareLocationToggle(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 32),
-                            AnimationConfiguration.staggeredList(
-                              position: _userRole == 'agent' || _userRole == 'moderator' ? 8 : 7,
-                              duration: const Duration(milliseconds: 375),
-                              child: SlideAnimation(
-                                verticalOffset: 50.0,
-                                child: FadeInAnimation(
-                                  child: _buildActionButtons(context),
-                                ),
-                              ),
-                            ),
-                          ],
+                              _buildNonEditableField('Role', _userRole ?? 'employee', Icons.work), // Added Role (non-editable)
+                              if (_userRole == 'agent' || _userRole == 'moderator')
+                                _buildNonEditableField('Platform', _platformController.text, Icons.build), // Non-editable Platform
+                              _buildEditableField('Address', _addressController, Icons.location_on),
+                              _buildShareLocationToggle(),
+                              const SizedBox(height: 32),
+                              _buildActionButtons(context),
+                            ],
+                          ),
                         ),
                       ),
                     );
@@ -584,14 +521,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             fillColor: Theme.of(context).colorScheme.surface,
             contentPadding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 16.0),
           ),
-          validator: (value) {
-            if (label == 'Platform' &&
-                (_userRole == 'agent' || _userRole == 'moderator') &&
-                (value == null || value.isEmpty)) {
-              return 'Please enter a platform';
-            }
-            return null;
-          },
           style: GoogleFonts.poppins(
             color: Theme.of(context).colorScheme.onSurface,
           ),
@@ -608,6 +537,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           subtitle: Text(
             controller.text.isEmpty ? 'Not provided' : controller.text,
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNonEditableField(String label, String value, IconData icon) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ListTile(
+          leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
+          title: Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+          subtitle: Text(
+            value.isEmpty ? 'Not provided' : value,
             style: GoogleFonts.poppins(
               fontSize: 16,
               color: Theme.of(context).colorScheme.onSurface,
@@ -810,6 +776,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       final updateData = {
         'fullName': _fullNameController.text,
+        'nickName': _nickNameController.text, // Added Nickname
         'phoneNumber': _phoneController.text,
         'address': _addressController.text,
         'country': _selectedCountry,
@@ -818,11 +785,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'lastUpdated': FieldValue.serverTimestamp(),
       };
 
+      // Email, Role, and Platform are not updated as they are non-editable
+      // Platform is only included in Firestore if the role is agent or moderator, but not updated here
       if (_userRole == 'agent' || _userRole == 'moderator') {
         if (_platformController.text.isEmpty) {
           throw Exception('Platform is required for agent or moderator roles');
         }
-        updateData['platform'] = _platformController.text;
+        // Platform is not updated in Firestore since it's non-editable
       } else {
         updateData['platform'] = FieldValue.delete();
         updateData['department'] = FieldValue.delete();
